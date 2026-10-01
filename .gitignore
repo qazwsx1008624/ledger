@@ -1,0 +1,37 @@
+# ---- 非项目内容（本目录同时是 DSH 工作区）----
+# dsh-home 是 DSH_HOME 运行目录，含 .credentials.yaml / sessions，禁止入库
+dsh-home/
+
+# 环境迁移时留下的一次性日志
+move-data-log.txt
+
+# Windows 新建空文本文件
+新建 文本文档.txt
+
+# ---- 依赖与构建产物 ----
+node_modules/
+dist/
+build/
+out/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# ---- 本地数据与配置（记账数据属个人数据，不入库）----
+*.db
+*.sqlite
+*.sqlite3
+*.log
+.env
+.env.*
+!.env.example
+
+# ---- 编辑器与系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
