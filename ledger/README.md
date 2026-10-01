@@ -1,6 +1,9 @@
-# 记账本
+# 生活费记账本
 
-本地使用的记账工具。数据存在**浏览器内的 SQLite 数据库**里，不依赖任何后端服务，账目不出本机。
+大学生活费记账工具。数据存在本机，不依赖任何后端服务，账目不出本机。
+
+> **当前是交互演示版（demo）。** 数据是内置的模拟数据，改动只存在内存里，**刷新页面即重置**。
+> 目的是先确认交互与统计口径，持久化与备份尚未接入。详见下方「演示版的边界」。
 
 ## 运行
 
@@ -10,81 +13,116 @@ pnpm install
 pnpm dev
 ```
 
-然后用浏览器打开 **http://localhost:5173**。
-
-> 端口被固定在 5173（`strictPort`）。原因见下方「数据存在哪里」，请务必用这个地址访问。
-
-其他命令：
+然后打开 **http://localhost:5173**。
 
 | 命令 | 作用 |
 | --- | --- |
 | `pnpm dev` | 启动开发服务器 |
-| `pnpm build` | 类型检查 + 生产构建，产物在 `dist/` |
-| `pnpm preview` | 预览生产构建（同样固定在 5173） |
+| `pnpm build` | 类型检查 + 生产构建 |
 | `pnpm typecheck` | 只做类型检查 |
+| `pnpm test` | 运行测试 |
 
-## 技术选型
+> `pnpm dev`、`pnpm build`、`pnpm test` 在本机 DSH 沙箱内都会失败：Vite 在 Windows 上做路径校验时会 spawn 子进程，而该处**没有 try/catch**，受限沙箱下直接抛 `EPERM`。请在项目目录下用自己的终端运行，与项目代码无关。详见文末「环境上的坑」。
 
-- **Vite 8 + React 19 + TypeScript 7**（严格模式，开启 `noUncheckedIndexedAccess`、`exactOptionalPropertyTypes`）
-- **SQLite via `@sqlite.org/sqlite-wasm`**，使用官方的 `opfs-sahpool` VFS
+## 演示版的边界
 
-几个关键决定及其原因：
+**已做实：** 统计口径与交互。
 
-**为什么数据库跑在 Web Worker 里。** OPFS 的同步访问句柄 `FileSystemSyncAccessHandle` 只在专用 Worker 中可用，主线程拿不到。所以 `src/db/ledger.worker.ts` 持有数据库，主线程通过 `src/db/ledger-client.ts` 发消息调用。这条是硬性约束，不是架构偏好。
+**未接：** 持久化（SQLite / OPFS）、自动备份、`.xlsx` 导出、分类管理界面、回收站页面、月度预期与对比。
 
-**为什么选 `opfs-sahpool` 而不是默认的 `opfs` VFS。** `opfs` VFS 需要 `SharedArrayBuffer`，因而需要服务端下发 COOP/COEP 响应头（跨源隔离）。`opfs-sahpool` 不需要任何响应头，且按[官方文档](https://sqlite.org/wasm/doc/trunk/persistence.md)是各 OPFS 方案中性能最好的。代价是同一时间只允许一个连接占用数据库——第二个标签页打开会失败并给出明确提示，这对单机记账没有影响。
+`src/db/` 下已有可用的 SQLite Worker 数据层（使用官方 `opfs-sahpool` VFS，已通过构建与开发服务器验证），但**当前未被引用**——演示版走内存数据源。接入时替换 `src/core/store.ts` 即可，界面与统计逻辑不需要改。
 
-**为什么金额用「分」存整数。** 浮点数做金额运算会出现 `0.1 + 0.2 !== 0.3` 这类误差。库里存 `amount_cents INTEGER`，只在渲染时转成元（见 `src/lib/money.ts`）。
+这是刻意的取舍：先确认交互，避免持久化那一层（schema 迁移、备份策略）反复返工。
 
-**注意 `clearOnInit` 必须保持 `false`。** 官方的 sahpool 演示里这个选项设成了 `true`，那会导致每次刷新页面都清空数据库。代码里对此有注释标注。
+## 核心口径
 
-## 数据存在哪里
+三条不变的口径，均由测试守住（`src/core/*.test.ts`）：
 
-数据库文件是浏览器 OPFS 中的 `ledger.sqlite3`（VFS 目录 `/ledger-vfs`）。
+```
+净支出 = 正常支出 − 退款
+可存下 = 收入 − 净支出
+分类占比 = 该分类净额 ÷ 本月净支出        （退款抵扣所属分类）
+```
 
-- OPFS 按「协议 + 主机 + 端口」隔离。**换端口就是另一个空数据库**，所以 dev 与 preview 的端口都被钉在 5173。
-- 同一时间只允许一个标签页打开本账本；重复打开会看到明确提示而不是静默出错。
-- 应用启动时会调用 `navigator.storage.persist()` 申请持久化存储。若浏览器未授予，界面会提示，建议定期导出备份。
-- 数据只存在这台机器的这个浏览器里。**不要用无痕模式**，浏览器清理站点数据会一并删掉账本。
+其它约定：
 
-**备份：** 界面底部「导出备份」会下载一个 `ledger-YYYY-MM-DD.sqlite` 文件，可直接用 DB Browser for SQLite 等工具打开查看，也可作为长期存档。
+- **金额一律以整数「分」存储与运算**，只有渲染时才换算成元。浮点数不能用于金额。
+- **不允许负数金额。** 方向完全由类型决定（退款靠 `isRefund` 标记表达，不靠负号）。这条能从结构上杜绝「负数支出」与「退款」两个含义互相打架。
+- **软删除的账目不得计入任何统计。** 所有统计查询都必须先过滤 `deletedAt`。
+- **「用途待补充」不是普通分类，而是一个待补充状态。** 它照常计入总支出（钱确实花了），但在分类表里单独呈现，并作为待办事项显示在主界面。
 
-## 当前功能
+## 交互设计要点
 
-- 记录收入 / 支出，字段：日期、金额、分类、备注
-- 按月份查看，上月 / 下月 / 回到本月切换
-- 按分类筛选明细
-- 收入、支出、结余、笔数的月度汇总（用 SQL 聚合，不把明细拉到前端累加）
-- 编辑与删除已有账目
-- 导出 `.sqlite` 备份文件
-
-预置分类在首次建库时写入（`ledger.worker.ts` 的 `SEED_CATEGORIES`），之后不会覆盖改动。分类的增删改界面尚未实现。
+- 打开即默认「今天 + 支出」，光标已在金额框；**金额敲完按回车即保存**，保存后清空并回到金额框，可连续记。
+- 分类用一排按钮，点击即选中。
+- 日期默认今天，带「昨天 / 前天」快捷键（补账是常态）。
+- 保存后显示「已记在 X」，让用户有机会发现日期记错。
+- **最近 3 笔**直接显示在录入区，可原地改金额与备注。记错通常发生在刚记完的几秒内。
+- 删除为软删除，显示「撤销」提示条，回收站里可恢复。
+- **用途待补充**：按金额从大到小逐笔过，按数字键 1–9 归类，一笔一次按键；`Esc` 跳过（想不起来就先放着，不能逼用户瞎选一个分类，那比留空更糟）。
+- 统计全部由 SQL 或纯函数聚合得出，**不把明细拉到前端累加**（分页或筛选时会算漏）。
 
 ## 项目结构
 
 ```
 ledger/
 ├── index.html
-├── vite.config.ts          # worker 用 ES 格式；端口固定
-├── pnpm-workspace.yaml     # pnpm 供应链策略与 hoisted 布局（见下）
+├── vite.config.ts            # worker 用 ES 格式；端口固定 5173
+├── vitest.config.ts
+├── pnpm-workspace.yaml       # pnpm 供应链策略与 hoisted 布局（见文末）
 └── src/
     ├── main.tsx
-    ├── App.tsx             # 界面与交互
+    ├── App.tsx               # 界面：录入、每日统计、月度统计、快捷键归类
     ├── styles.css
-    ├── types.ts
-    ├── lib/money.ts        # 金额「分/元」换算与日期工具
-    └── db/
-        ├── protocol.ts       # 主线程 ↔ Worker 消息类型
-        ├── ledger.worker.ts  # SQLite：建表、种子分类、增删改查、导出
-        └── ledger-client.ts  # 把 postMessage 包装成可 await 的调用
+    ├── core/                 # 纯逻辑，不依赖 DOM，全部可测
+    │   ├── types.ts          # 数据模型
+    │   ├── money.ts          # 金额分/元换算与日期工具
+    │   ├── stats.ts          # 统计口径（净支出、分类占比、日均可用）
+    │   ├── store.ts          # 演示用内存数据源 + 内置模拟数据
+    │   ├── money.test.ts
+    │   └── stats.test.ts
+    └── db/                   # SQLite 数据层（已实现，尚未接入，见上文）
+        ├── protocol.ts
+        ├── ledger.worker.ts
+        └── ledger-client.ts
 ```
 
-## 本机环境上的两个坑
+## 技术选型
+
+Vite 8 + React 19 + TypeScript 7（严格模式，开启 `noUncheckedIndexedAccess`、`exactOptionalPropertyTypes`）。
+
+数据库将使用 `@sqlite.org/sqlite-wasm` 的官方 **`opfs-sahpool` VFS**，几条硬性约束：
+
+| 约束 | 原因 |
+| --- | --- |
+| 数据库必须跑在**专用 Web Worker** 中 | OPFS 的同步访问句柄 `FileSystemSyncAccessHandle` 只在专用 Worker 中可用，主线程拿不到 |
+| 主线程只能通过客户端模块调用数据库 | 不要在 React 组件里直接用 SQLite |
+| 选 `opfs-sahpool` 而非默认的 `opfs` VFS | 前者**不需要 COOP/COEP 响应头**；后者需要 SharedArrayBuffer，因而需要跨源隔离。代价是同一时间只允许一个连接 |
+| **绝不能设置 `clearOnInit: true`** | 官方 sahpool 演示里设成了 `true`，那会导致**每次刷新页面清空数据库**。这是最容易踩的坑 |
+| 端口固定 5173（dev 与 preview 一致） | OPFS 按「协议 + 主机 + 端口」隔离，换端口等于换一个空数据库，会让用户以为数据丢了 |
+| Worker 使用 ES module 格式 | 需 `worker: { format: 'es' }` 以匹配 `new Worker(url, { type: 'module' })` |
+
+## 数据安全（尚未实现）
+
+用户要求「不能丢数据」。浏览器存储无法做到绝对不丢，计划靠多层设计把风险降到最低：
+
+1. **自动备份到真实文件夹**：用 File System Access API 选定目录后，每次变动自动写入。仅 Chrome / Edge 支持。
+2. **启动一致性检查**：对比本地笔数与备份清单记录的笔数，发现本地为空而备份有记录时，提示一键恢复。这是防「静默丢失」的关键。
+3. **双格式导出**：`.sqlite`（完整恢复）与 `.xlsx`（Excel 直接打开）。
+4. **界面显示「距上次成功备份多少天」**，不藏在设置里。
+
+## 环境上的坑
 
 **1. `pnpm-workspace.yaml` 里为什么用 `nodeLinker: hoisted`。**
-本机 pnpm 11.7.0 使用默认的隔离式（符号链接）布局创建链接时会抛 `[ERR_PNPM_SYMLINK_FAILED] Maximum call stack size exceeded`，并留下指向空目标的**悬空链接**，而 pnpm 仍按锁文件认为安装已完成、不会自动修复。受影响的是 `rolldown`、`lightningcss`、TypeScript 的原生二进制，表现为 `vite` / `tsc` 直接启动失败。改成提升式布局可绕开该缺陷。
+本机 pnpm 11.7.0 使用默认的隔离式布局创建链接时会抛 `[ERR_PNPM_SYMLINK_FAILED] Maximum call stack size exceeded`，并留下指向空目标的**悬空链接**，而 pnpm 仍按锁文件认为安装已完成、不会自动修复。受影响的是 `rolldown`、`lightningcss`、TypeScript 的原生二进制，表现为 `vite` / `tsc` 直接启动失败。改成提升式布局可绕开。
 
 同文件中的 `minimumReleaseAgeExclude` 是对 pnpm 供应链策略（默认拒绝发布未满 24 小时的版本）的定向豁免，只放行本项目工具链必需且发布尚新的包，不关闭整体门槛。
 
-**2. 在 DSH 沙箱内无法启动开发服务器。**
-Vite 在 Windows 上做路径校验时会调用 `exec("net use", ...)`，而它对 spawn 失败**没有 try/catch**（`vite/dist/node/chunks/node.js` 的 `optimizeSafeRealPathSync`）。受限沙箱下无法打开命名管道，spawn 同步抛 `EPERM`，直接导致 `pnpm dev` 与 `pnpm build` 中断。在项目目录下用自己的终端直接运行即可，与项目代码无关。
+**2. 在 DSH 沙箱内无法启动开发服务器、构建或跑测试。**
+Vite 在 Windows 上做路径校验时会调用 `exec("net use", ...)`，而它对 spawn 失败**没有 try/catch**（`vite/dist/node/chunks/node.js` 的 `optimizeSafeRealPathSync`）。受限沙箱下无法打开命名管道，spawn 同步抛 `EPERM`，直接中断。`pnpm dev`、`pnpm build`、`pnpm test` 都受影响（vitest 内部也走 Vite）。在项目目录下用自己的终端运行即可，与项目代码无关。
+
+若在有沙箱但允许子进程的环境里跑测试，Vite 还会往系统临时目录写中间产物；`vitest.config.mts` 已把 `cacheDir` 指到工作区内的 `.cache/`。若仍报临时目录写入失败，把 `TEMP` / `TMP` 也指向工作区内目录即可。
+
+## 需求文档
+
+完整需求见仓库根目录的 `docs/requirements.md`。
