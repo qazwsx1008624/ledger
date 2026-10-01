@@ -6,6 +6,7 @@
   "description": "生活费记账本 —— 数据存储在浏览器内 SQLite，无需服务器",
   "scripts": {
     "dev": "vite",
+    "start": "node scripts/serve-dist.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
