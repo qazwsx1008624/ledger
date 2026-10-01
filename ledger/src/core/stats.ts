@@ -117,75 +117,14 @@ export function sumNet(lines: readonly CategoryLine[]): number {
   return lines.reduce((sum, line) => sum + line.netCents, 0)
 }
 
-export interface DailyStats {
-  /** 今日净支出 */
-  todayCents: number
-  /** 本月累计净支出 */
-  monthToDateCents: number
-  /** 本月已过天数（含今天），用来算日均 */
-  elapsedDays: number
-  /** 本月天数 */
-  daysInMonth: number
-  /** 剩余天数（含今天）；已过完则为 0 */
-  remainingDays: number
-  /** 本月日均支出 = 累计 ÷ 已过天数 */
-  dailyAverageCents: number
-  /**
-   * 剩余每天可用。仅在设了月度预期时有值：
-   * (预期 − 累计) ÷ 剩余天数，允许为负（表示已经超了）
-   */
-  allowanceCents: number | null
-}
-
-/**
- * 每日统计。
- * @param month 形如 YYYY-MM
- * @param today 今天，形如 YYYY-MM-DD
- * @param budgetCents 本月预期花销；未设定时传 null
- */
-export function dailyStats(
-  rows: readonly LedgerRow[],
-  month: string,
-  today: string,
-  budgetCents: number | null,
-): DailyStats {
-  const daysInMonth = daysIn(month)
-  const dayOfMonth = Number(today.slice(8, 10))
-  // 若传入的 today 不属于该月，按整月已过处理，避免出现负数天数
-  const elapsedDays = today.startsWith(month) ? Math.min(Math.max(dayOfMonth, 1), daysInMonth) : daysInMonth
-  const remainingDays = today.startsWith(month) ? daysInMonth - dayOfMonth + 1 : 0
-
-  const monthRows = rowsOfMonth(rows, month)
-  const monthToDateCents = netOf(monthRows)
-  const todayCents = netOf(rowsOfDay(rows, today))
-
-  return {
-    todayCents,
-    monthToDateCents,
-    elapsedDays,
-    daysInMonth,
-    remainingDays,
-    dailyAverageCents: Math.round(monthToDateCents / elapsedDays),
-    allowanceCents:
-      budgetCents === null || remainingDays <= 0
-        ? null
-        : Math.round((budgetCents - monthToDateCents) / remainingDays),
-  }
-}
-
-/** 支出侧净额：正常支出减去退款 */
-function netOf(rows: readonly LedgerRow[]): number {
+/** 某一天的净支出（正常支出 − 退款，已排除软删除）。收入不计入 */
+export function dayNet(rows: readonly LedgerRow[], day: string): number {
   let net = 0
-  for (const row of rows) {
+  for (const row of rowsOfDay(rows, day)) {
     if (row.kind !== 'expense') continue
     net += row.isRefund === true ? -row.amountCents : row.amountCents
   }
   return net
-}
-
-export function daysIn(month: string): number {
-  const [year = '1970', mon = '01'] = month.split('-')
-  return new Date(Number(year), Number(mon), 0).getDate()
 }
 
 /** 用途待补充的账目，按金额从大到小（大额更容易想起用途） */

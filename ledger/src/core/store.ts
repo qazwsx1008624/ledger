@@ -7,6 +7,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import type { Category, LedgerRow, TxKind } from './types'
+import { addCategory, moveCategory, removeCategory, renameCategory } from './categories'
 
 export interface LedgerState {
   /** demo 用的「今天」。真实实现里应取系统日期 */
@@ -193,6 +194,40 @@ export function restoreRow(id: number): void {
 
 export function setBudget(cents: number | null): void {
   setState({ ...state, budgetCents: cents })
+}
+
+/**
+ * 分类操作。返回 null 表示成功，否则返回给用户看的错误信息。
+ * 逻辑本身在 categories.ts 的纯函数里，这里有测试守住。
+ */
+export function addCategoryAction(kind: TxKind, name: string): string | null {
+  const result = addCategory(state.categories, state.rows, kind, name)
+  if (!result.ok) return result.error
+  setState({ ...state, categories: result.categories, rows: result.rows })
+  return null
+}
+
+export function renameCategoryAction(id: number, name: string): string | null {
+  const result = renameCategory(state.categories, state.rows, id, name)
+  if (!result.ok) return result.error
+  setState({ ...state, categories: result.categories, rows: result.rows })
+  return null
+}
+
+export function removeCategoryAction(id: number): string | null {
+  const result = removeCategory(state.categories, state.rows, id)
+  if (!result.ok) return result.error
+  setState({ ...state, categories: result.categories, rows: result.rows })
+  return null
+}
+
+export function moveCategoryAction(id: number, delta: number): void {
+  setState({ ...state, categories: moveCategory(state.categories, id, delta) })
+}
+
+/** 某分类下未删除的账目数（删除分类时用来提示会迁移多少笔） */
+export function categoryUsage(categories: readonly Category[], rows: readonly LedgerRow[], id: number): number {
+  return rows.filter((row) => row.categoryId === id && row.deletedAt === undefined).length
 }
 
 export function categoryById(categories: readonly Category[], id: number): Category | undefined {

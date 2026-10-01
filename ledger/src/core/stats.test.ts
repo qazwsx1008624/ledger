@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   categoryBreakdown,
-  dailyStats,
+  dayNet,
   deletedRows,
-  daysIn,
   monthTotals,
   pendingRows,
   rowsOfMonth,
@@ -123,68 +122,35 @@ describe('软删除不得计入任何合计', () => {
   })
 })
 
-describe('每日统计与日均可用', () => {
-  it('未设预期时给日均支出，不显示日均可用', () => {
-    const rows = [
-      row({ id: 1, date: '2026-10-01', kind: 'expense', amountCents: 10000 }),
-      row({ id: 2, date: '2026-10-14', kind: 'expense', amountCents: 4000 }),
-    ]
-    const stats = dailyStats(rows, '2026-10', '2026-10-14', null)
-
-    expect(stats.todayCents).toBe(4000)
-    expect(stats.monthToDateCents).toBe(14000)
-    expect(stats.elapsedDays).toBe(14)
-    expect(stats.remainingDays).toBe(18) // 10 月 31 天，14 号当天仍可花
-    expect(stats.dailyAverageCents).toBe(1000)
-    expect(stats.allowanceCents).toBeNull()
-  })
-
-  it('设了预期后按剩余天数算每天可用，剩余天数含今天', () => {
-    const rows = [row({ id: 1, date: '2026-10-01', kind: 'expense', amountCents: 10000 })]
-    const stats = dailyStats(rows, '2026-10', '2026-10-14', 200000)
-
-    // (200000 − 10000) ÷ 18 = 10555.55...
-    expect(stats.allowanceCents).toBe(10556)
-  })
-
-  it('已经超支时日均可用为负，而不是被截断为 0', () => {
-    const rows = [row({ id: 1, date: '2026-10-01', kind: 'expense', amountCents: 300000 })]
-    expect(dailyStats(rows, '2026-10', '2026-10-14', 200000).allowanceCents).toBeLessThan(0)
-  })
-
-  it('月份最后一天剩余天数为 1，不会出现除零', () => {
-    const rows = [row({ id: 1, date: '2026-10-31', kind: 'expense', amountCents: 5000 })]
-    const stats = dailyStats(rows, '2026-10', '2026-10-31', 100000)
-    expect(stats.remainingDays).toBe(1)
-    expect(stats.allowanceCents).toBe(95000)
-  })
-
-  it('退款计入当日与本月净额', () => {
+describe('今日净支出', () => {
+  it('只统计指定那一天，退款抵扣，收入不计入', () => {
     const rows = [
       row({ id: 1, date: '2026-10-14', kind: 'expense', amountCents: 8000 }),
       row({ id: 2, date: '2026-10-14', kind: 'expense', amountCents: 3000, isRefund: true }),
+      row({ id: 3, date: '2026-10-14', kind: 'income', amountCents: 200000, categoryId: 9 }),
+      row({ id: 4, date: '2026-10-13', kind: 'expense', amountCents: 99999 }),
     ]
-    const stats = dailyStats(rows, '2026-10', '2026-10-14', null)
-    expect(stats.todayCents).toBe(5000)
-    expect(stats.monthToDateCents).toBe(5000)
+    expect(dayNet(rows, '2026-10-14')).toBe(5000)
   })
 
-  it('本月累计只算查询月份，不会把上月算进来', () => {
+  it('软删除的账目不计入今日支出', () => {
     const rows = [
-      row({ id: 1, date: '2026-09-30', kind: 'expense', amountCents: 999999 }),
-      row({ id: 2, date: '2026-10-01', kind: 'expense', amountCents: 100 }),
+      row({ id: 1, date: '2026-10-14', kind: 'expense', amountCents: 8000, deletedAt: '2026-10-14' }),
+      row({ id: 2, date: '2026-10-14', kind: 'expense', amountCents: 1000 }),
     ]
-    expect(dailyStats(rows, '2026-10', '2026-10-14', null).monthToDateCents).toBe(100)
+    expect(dayNet(rows, '2026-10-14')).toBe(1000)
   })
 
-  it('收入不计入支出侧统计', () => {
+  it('退款大于支出时为负', () => {
     const rows = [
-      row({ id: 1, date: '2026-10-01', kind: 'income', amountCents: 200000, categoryId: 9 }),
-      row({ id: 2, date: '2026-10-01', kind: 'expense', amountCents: 100, categoryId: CAT_FOOD }),
+      row({ id: 1, date: '2026-10-14', kind: 'expense', amountCents: 1000 }),
+      row({ id: 2, date: '2026-10-14', kind: 'expense', amountCents: 3000, isRefund: true }),
     ]
-    const stats = dailyStats(rows, '2026-10', '2026-10-14', null)
-    expect(stats.monthToDateCents).toBe(100)
-    expect(stats.todayCents).toBe(0)
+    expect(dayNet(rows, '2026-10-14')).toBe(-2000)
+  })
+
+  it('当天没有支出时为 0', () => {
+    expect(dayNet([], '2026-10-14')).toBe(0)
   })
 })
 
@@ -231,14 +197,5 @@ describe('待补充与分类占比', () => {
 
   it('没有支出时占比表为空', () => {
     expect(categoryBreakdown([], '2026-10')).toEqual([])
-  })
-})
-
-describe('月份天数', () => {
-  it('平年与闰年的 2 月', () => {
-    expect(daysIn('2026-02')).toBe(28)
-    expect(daysIn('2024-02')).toBe(29)
-    expect(daysIn('2026-10')).toBe(31)
-    expect(daysIn('2026-04')).toBe(30)
   })
 })
