@@ -226,7 +226,7 @@ export function moveCategoryAction(id: number, delta: number): void {
 }
 
 /** 某分类下未删除的账目数（删除分类时用来提示会迁移多少笔） */
-export function categoryUsage(categories: readonly Category[], rows: readonly LedgerRow[], id: number): number {
+export function categoryUsage(rows: readonly LedgerRow[], id: number): number {
   return rows.filter((row) => row.categoryId === id && row.deletedAt === undefined).length
 }
 
