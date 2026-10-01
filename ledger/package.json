@@ -1,0 +1,25 @@
+{
+  "name": "ledger",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "本地记账本 —— 数据存储在浏览器内 SQLite，无需服务器",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sqlite.org/sqlite-wasm": "3.53.4-build1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.2"
+  }
+}

@@ -1,0 +1,307 @@
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --border: #e2e5ea;
+  --text: #1f2430;
+  --muted: #6b7280;
+  --accent: #2f6fed;
+  --accent-soft: #eaf1ff;
+  --income: #16855b;
+  --expense: #d1495b;
+  --radius: 10px;
+
+  color-scheme: light;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  font-size: 14px;
+}
+
+.app {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+}
+
+.app__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.app__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.app__subtitle {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.card__title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ---- 表单 ---- */
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field--wide {
+  grid-column: span 2;
+}
+
+.field__label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+input,
+select {
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+}
+
+input:focus,
+select:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: var(--accent);
+}
+
+/* 金额输入去掉数字调节箭头，避免误触 */
+input[type='text'].amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.button {
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+
+.button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.button--ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* ---- 月份切换与汇总 ---- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolbar__month {
+  font-size: 16px;
+  font-weight: 600;
+  min-width: 92px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.toolbar__spacer {
+  flex: 1;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.summary__item {
+  background: #fafbfc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.summary__label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.summary__value {
+  margin-top: 3px;
+  font-size: 18px;
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary__value--income {
+  color: var(--income);
+}
+
+.summary__value--expense {
+  color: var(--expense);
+}
+
+/* ---- 列表 ---- */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 8px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.table td {
+  padding: 9px 8px;
+  border-bottom: 1px solid #f0f2f5;
+  vertical-align: middle;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.table .num--income {
+  color: var(--income);
+}
+
+.table .num--expense {
+  color: var(--expense);
+}
+
+.table .muted {
+  color: var(--muted);
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.icon-button {
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.icon-button--danger:hover {
+  border-color: var(--expense);
+  color: var(--expense);
+}
+
+/* ---- 状态提示 ---- */
+
+.notice {
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.notice--error {
+  background: #fdecef;
+  border: 1px solid #f5c2cb;
+  color: #8d2135;
+}
+
+.notice--info {
+  background: var(--accent-soft);
+  border: 1px solid #cfe0ff;
+  color: #24457f;
+}
+
+.empty {
+  padding: 28px 12px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.footnote {
+  margin-top: 20px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.footnote code {
+  background: #eceff3;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+}

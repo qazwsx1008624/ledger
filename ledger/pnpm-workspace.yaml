@@ -1,0 +1,18 @@
+# pnpm 供应链策略：默认拒绝「发布未满 minimumReleaseAge（1440 分钟）」的版本，
+# 以免刚被投毒的版本被立即安装。下面这几个是本项目工具链必需、且发布尚新的包，
+# 仅对它们放行，不关闭整体门槛。
+minimumReleaseAgeExclude:
+  - vite@8.3.2
+  - rolldown@1.2.11
+  - '@rolldown/binding-win32-x64-msvc@1.2.11'
+  - lightningcss@1.33.0
+  - lightningcss-win32-x64-msvc@1.33.0
+  - typescript@7.0.2
+  - '@typescript/typescript-win32-x64@7.0.2'
+
+# 用「提升式」node_modules 布局，而非默认的符号链接布局。
+# 原因：本机 pnpm 11.7.0 在使用隔离式布局创建链接时会抛
+# [ERR_PNPM_SYMLINK_FAILED] Maximum call stack size exceeded，
+# 并留下指向空目标的悬空链接（rolldown、lightningcss、TypeScript 的原生二进制都受影响），
+# 导致 vite / tsc 无法启动。提升式布局不做这种链接，绕开该缺陷。
+nodeLinker: hoisted
