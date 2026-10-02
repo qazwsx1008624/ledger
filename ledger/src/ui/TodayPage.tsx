@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { LedgerRow } from '../core/types'
 import { dayNet, rowsOfDay } from '../core/stats'
 import { formatCents, formatDateLabel, relativeDayLabel, shiftDay } from '../core/money'
@@ -17,9 +17,12 @@ interface TodayPageProps {
 export function TodayPage({ onEdit }: TodayPageProps) {
   const { referenceDate, categories, rows } = useLedger()
   const [day, setDay] = useState(referenceDate)
+  const [pickingDate, setPickingDate] = useState(false)
+  const dateInputRef = useRef<HTMLInputElement>(null)
 
+  // 当日账单按时间先后（录入顺序）排列
   const dayRows = useMemo(
-    () => rowsOfDay(rows, day).sort((a, b) => b.id - a.id),
+    () => rowsOfDay(rows, day).sort((a, b) => a.id - b.id),
     [rows, day],
   )
   const net = dayNet(rows, day)
@@ -29,6 +32,22 @@ export function TodayPage({ onEdit }: TodayPageProps) {
 
   const isToday = day === referenceDate
   const canGoNext = day < referenceDate
+
+  /** 点击日期标签：弹出日期选择器。showPicker 需要用户手势，必须在点击处理里同步调用 */
+  function openDatePicker() {
+    setPickingDate(true)
+    // 等 input 挂载后立刻展开原生日历
+    requestAnimationFrame(() => {
+      const input = dateInputRef.current
+      if (!input) return
+      try {
+        input.showPicker()
+      } catch {
+        // 不支持 showPicker 的浏览器：input 已聚焦，用户手动点开即可
+        input.focus()
+      }
+    })
+  }
 
   return (
     <div className="page">
@@ -44,7 +63,34 @@ export function TodayPage({ onEdit }: TodayPageProps) {
           <IconChevronLeft />
         </button>
         <div className="day-nav__center">
-          <span className="day-nav__label">{formatDateLabel(day)}</span>
+          {pickingDate ? (
+            <input
+              ref={dateInputRef}
+              className="day-nav__date-input"
+              type="date"
+              value={day}
+              onChange={(event) => {
+                const next = event.target.value
+                if (next) {
+                  setDay(next)
+                  setPickingDate(false)
+                }
+              }}
+              onBlur={() => setPickingDate(false)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') setPickingDate(false)
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              className="day-nav__label day-nav__label--button"
+              onClick={openDatePicker}
+              title="点击选择日期"
+            >
+              {formatDateLabel(day)} <span className="day-nav__calendar">📅</span>
+            </button>
+          )}
           <div className="day-nav__shortcuts">
             <button className={isToday ? 'mini is-active' : 'mini'} onClick={() => setDay(referenceDate)}>
               今天
@@ -80,7 +126,7 @@ export function TodayPage({ onEdit }: TodayPageProps) {
       <section className="card">
         <div className="card__title">
           当日账单
-          <span className="card__hint">{dayRows.length} 笔</span>
+          <span className="card__hint">{dayRows.length} 笔 · 按时间先后</span>
         </div>
         {dayRows.length === 0 ? (
           <div className="empty">

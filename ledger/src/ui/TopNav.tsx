@@ -13,12 +13,10 @@ const TABS: ReadonlyArray<{ id: TabId; label: string; icon: ReactNode }> = [
 interface TopNavProps {
   page: TabId
   onChange: (page: TabId) => void
-  /** 「本月」标签上的待补充角标 */
-  pendingCount: number
 }
 
 /** 顶部导航：标题在左、四个入口横排在右上角 */
-export function TopNav({ page, onChange, pendingCount }: TopNavProps) {
+export function TopNav({ page, onChange }: TopNavProps) {
   return (
     <header className="topnav">
       <span className="topnav__brand">生活费记账本</span>
@@ -31,10 +29,7 @@ export function TopNav({ page, onChange, pendingCount }: TopNavProps) {
             onClick={() => onChange(tab.id)}
             aria-current={page === tab.id ? 'page' : undefined}
           >
-            <span className="topnav__icon">
-              {tab.icon}
-              {tab.id === 'month' && pendingCount > 0 && <span className="topnav__badge">{pendingCount}</span>}
-            </span>
+            <span className="topnav__icon">{tab.icon}</span>
             <span className="topnav__label">{tab.label}</span>
           </button>
         ))}

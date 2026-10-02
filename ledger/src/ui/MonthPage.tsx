@@ -25,12 +25,12 @@ export function MonthPage({ onEdit, onOpenTriage }: MonthPageProps) {
   const lines = categoryBreakdown(rows, month)
   const pending = useMemo(() => pendingRows(rows), [rows])
 
-  /** 整月账单，默认收起；按日期与录入顺序倒序 */
+  /** 整月账单，默认收起；按金额从高到低（同金额时按录入先后） */
   const monthRows = useMemo(
     () =>
       rowsOfMonth(rows, month).sort((a, b) => {
-        if (a.date !== b.date) return a.date < b.date ? 1 : -1
-        return b.id - a.id
+        if (a.amountCents !== b.amountCents) return b.amountCents - a.amountCents
+        return a.id - b.id
       }),
     [rows, month],
   )
@@ -177,7 +177,7 @@ export function MonthPage({ onEdit, onOpenTriage }: MonthPageProps) {
         >
           <span>
             本月账单
-            <span className="card__hint"> {monthRows.length} 笔 · 点开查看</span>
+            <span className="card__hint"> {monthRows.length} 笔 · 按金额从高到低</span>
           </span>
           <span className={showAllTx ? 'collapsible-caret is-open' : 'collapsible-caret'}>▸</span>
         </button>

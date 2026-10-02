@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { LedgerRow } from './core/types'
 import { formatCents, formatDateLabel } from './core/money'
-import { pendingRows } from './core/stats'
 import { categoryById, removeRow, restoreRow, useLedger } from './core/store'
 import { EntryPage } from './ui/EntryPage'
 import { ManagePage } from './ui/ManagePage'
@@ -15,13 +14,11 @@ import { TxEditor } from './ui/TxEditor'
  * 应用壳：左侧导航 + 四个页面 + 全屏归类 + 编辑面板 + 撤销提示。
  */
 export default function App() {
-  const { categories, rows } = useLedger()
+  const { categories } = useLedger()
   const [page, setPage] = useState<TabId>('entry')
   const [triageOpen, setTriageOpen] = useState(false)
   const [editing, setEditing] = useState<LedgerRow | null>(null)
   const [undo, setUndo] = useState<{ id: number; label: string } | null>(null)
-
-  const pending = useMemo(() => pendingRows(rows), [rows])
 
   function handleDelete(row: LedgerRow) {
     const category = categoryById(categories, row.categoryId)?.name ?? '未知分类'
@@ -39,7 +36,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <TopNav page={page} onChange={setPage} pendingCount={pending.length} />
+      <TopNav page={page} onChange={setPage} />
 
       <main className="main">
         {triageOpen ? (

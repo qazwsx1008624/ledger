@@ -661,6 +661,48 @@ button {
   font-weight: 650;
 }
 
+/* 日期标签可点击，点开弹出日期选择器 */
+.day-nav__label--button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px dashed transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.day-nav__label--button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.day-nav__calendar {
+  font-size: 13px;
+}
+
+.day-nav__date-input {
+  padding: 6px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.day-nav__date-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
 .day-nav__shortcuts {
   display: flex;
   justify-content: center;
