@@ -29,14 +29,18 @@
 
 ## 第 3 步：把本地代码推上去（电脑终端）
 
-在电脑上打开终端（开始菜单搜 `PowerShell` 或 `cmd`），**逐行**执行下面命令。
+在电脑上打开终端（开始菜单搜 `PowerShell`），**逐行**执行下面命令。
 注意把网址换成你第 1 步记下的地址：
 
-```bash
-cd /d D:\dsh-files
+```powershell
+cd D:\dsh-files
 git remote add origin https://github.com/<你的用户名>/<仓库名>.git
 git push -u origin main
 ```
+
+> ⚠️ 如果你用的是 **cmd**（黑窗口）而不是 PowerShell，切换目录要写成 `cd /d D:\dsh-files`；
+> 在 **PowerShell** 里写成 `cd /d D:\dsh-files` 会报
+> `Set-Location: 找不到接受实际参数“D:\dsh-files”的位置形式参数`——不要加 `/d`。
 
 执行 `git push` 时：
 
