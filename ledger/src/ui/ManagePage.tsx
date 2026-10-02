@@ -36,7 +36,7 @@ export function ManagePage() {
       <section className="card">
         <div className="card__title">
           分类管理
-          <span className="card__hint">删除分类时，已有账目会归入「其他」</span>
+          <span className="card__hint">删除分类时，其下账目一并删除（可在回收站恢复）</span>
         </div>
         <CategoryGroup kind="expense" title="支出分类" />
         <CategoryGroup kind="income" title="收入分类" />
@@ -196,7 +196,7 @@ function CategoryGroup({ kind, title }: { kind: TxKind; title: string }) {
       setError(result)
       return
     }
-    setError(usage > 0 ? `已删除「${category.name}」，${usage} 笔账目归入「其他」` : null)
+    setError(usage > 0 ? `已删除「${category.name}」及其下 ${usage} 笔账目（可在回收站恢复）` : `已删除「${category.name}」`)
     setConfirmDelete(null)
   }
 
@@ -253,7 +253,7 @@ function CategoryGroup({ kind, title }: { kind: TxKind; title: string }) {
                   {confirmDelete === category.id ? (
                     <span className="cat-manage__confirm">
                       <button className="btn btn--tiny btn--danger-solid" onClick={() => handleDelete(category)}>
-                        删除并归入其他
+                        删除分类和账目
                       </button>
                       <button className="btn btn--tiny" onClick={() => setConfirmDelete(null)}>
                         取消

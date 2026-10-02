@@ -19,10 +19,21 @@ export function MonthPage({ onEdit, onOpenTriage }: MonthPageProps) {
   const { referenceDate, categories, rows, budgetCents } = useLedger()
   const [month, setMonth] = useState(() => monthOf(referenceDate))
   const [detailCategory, setDetailCategory] = useState<number | null>(null)
+  const [showAllTx, setShowAllTx] = useState(false)
 
   const totals = monthTotals(rows, month)
   const lines = categoryBreakdown(rows, month)
   const pending = useMemo(() => pendingRows(rows), [rows])
+
+  /** 整月账单，默认收起；按日期与录入顺序倒序 */
+  const monthRows = useMemo(
+    () =>
+      rowsOfMonth(rows, month).sort((a, b) => {
+        if (a.date !== b.date) return a.date < b.date ? 1 : -1
+        return b.id - a.id
+      }),
+    [rows, month],
+  )
 
   const detailRows = useMemo(() => {
     if (detailCategory === null) return []
@@ -155,6 +166,37 @@ export function MonthPage({ onEdit, onOpenTriage }: MonthPageProps) {
             })}
           </ul>
         )}
+      </section>
+
+      <section className="card">
+        <button
+          type="button"
+          className="collapsible-head"
+          onClick={() => setShowAllTx((value) => !value)}
+          aria-expanded={showAllTx}
+        >
+          <span>
+            本月账单
+            <span className="card__hint"> {monthRows.length} 笔 · 点开查看</span>
+          </span>
+          <span className={showAllTx ? 'collapsible-caret is-open' : 'collapsible-caret'}>▸</span>
+        </button>
+
+        {showAllTx &&
+          (monthRows.length === 0 ? (
+            <div className="empty">{month} 还没有账目</div>
+          ) : (
+            <ul className="tx-list">
+              {monthRows.map((row) => (
+                <TxRow
+                  key={row.id}
+                  row={row}
+                  categoryName={categoryById(categories, row.categoryId)?.name ?? '未知'}
+                  onEdit={onEdit}
+                />
+              ))}
+            </ul>
+          ))}
       </section>
     </div>
   )

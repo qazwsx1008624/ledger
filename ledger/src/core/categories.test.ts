@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { addCategory, FALLBACK_CATEGORY, moveCategory, removeCategory, renameCategory } from './categories'
+import { addCategory, moveCategory, removeCategory, renameCategory } from './categories'
 import type { Category, LedgerRow } from './types'
+
+const OTHER = '其他'
 
 function cat(id: number, kind: 'income' | 'expense', name: string, sortOrder: number): Category {
   return { id, kind, name, sortOrder }
@@ -50,60 +52,63 @@ describe('重命名分类', () => {
 
 describe('删除分类', () => {
   it('无账目引用时直接删除', () => {
-    const result = removeCategory(BASE_CATEGORIES, [], 2)
+    const result = removeCategory(BASE_CATEGORIES, [], 2, '2026-10-14')
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.categories.map((category) => category.id)).toEqual([1, 3])
   })
 
-  it('有账目引用时，账目迁移到自动创建的「其他」，绝不丢账', () => {
+  it('删除分类时，其下未删除的账目一并软删除（进回收站，可恢复）', () => {
     const rows = [
       row({ id: 1, date: '2026-10-01', kind: 'expense', amountCents: 100, categoryId: 2 }),
       row({ id: 2, date: '2026-10-02', kind: 'expense', amountCents: 200, categoryId: 2 }),
+      row({ id: 3, date: '2026-10-03', kind: 'expense', amountCents: 300, categoryId: 1 }),
     ]
-    const result = removeCategory(BASE_CATEGORIES, rows, 2)
+    const result = removeCategory(BASE_CATEGORIES, rows, 2, '2026-10-14')
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    const fallback = result.categories.find((category) => category.name === FALLBACK_CATEGORY)
-    expect(fallback).toBeDefined()
-    expect(fallback?.kind).toBe('expense')
-    // 两笔账目都指向「其他」
-    expect(result.rows.every((item) => item.categoryId === fallback?.id)).toBe(true)
-    // 原分类消失
+    // 分类消失，不创建「其他」
     expect(result.categories.some((category) => category.id === 2)).toBe(false)
+    expect(result.categories.some((category) => category.name === OTHER)).toBe(false)
+    // 该分类下两笔被软删除；其他分类的账目不动
+    expect(result.removedCount).toBe(2)
+    expect(result.rows[0]?.deletedAt).toBe('2026-10-14')
+    expect(result.rows[1]?.deletedAt).toBe('2026-10-14')
+    expect(result.rows[2]?.deletedAt).toBeUndefined()
   })
 
-  it('软删除的账目也一并迁移，保证恢复后仍有有效分类', () => {
+  it('删除「其他」分类同样生效，不会出现「归入其他」的自指提示', () => {
+    const categories = [...BASE_CATEGORIES, cat(9, 'expense', OTHER, 90)]
+    const rows = [row({ id: 1, date: '2026-10-01', kind: 'expense', amountCents: 100, categoryId: 9 })]
+    const result = removeCategory(categories, rows, 9, '2026-10-14')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.categories.some((category) => category.id === 9)).toBe(false)
+    expect(result.removedCount).toBe(1)
+    expect(result.rows[0]?.deletedAt).toBe('2026-10-14')
+  })
+
+  it('已软删除的账目保持原样，不重复标记', () => {
     const rows = [
       row({ id: 1, date: '2026-10-01', kind: 'expense', amountCents: 100, categoryId: 2 }),
-      row({ id: 2, date: '2026-10-02', kind: 'expense', amountCents: 200, categoryId: 2, deletedAt: '2026-10-14' }),
+      row({ id: 2, date: '2026-10-02', kind: 'expense', amountCents: 200, categoryId: 2, deletedAt: '2026-10-13' }),
     ]
-    const result = removeCategory(BASE_CATEGORIES, rows, 2)
+    const result = removeCategory(BASE_CATEGORIES, rows, 2, '2026-10-14')
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.rows[0]?.categoryId).not.toBe(2)
-    expect(result.rows[1]?.categoryId).not.toBe(2)
+    expect(result.removedCount).toBe(1)
+    expect(result.rows[0]?.deletedAt).toBe('2026-10-14')
+    expect(result.rows[1]?.deletedAt).toBe('2026-10-13')
   })
 
-  it('收入分类同样迁移到收入侧的「其他」', () => {
+  it('收入分类同样连带软删其下账目', () => {
     const rows = [row({ id: 1, date: '2026-10-01', kind: 'income', amountCents: 5000, categoryId: 3 })]
-    const result = removeCategory(BASE_CATEGORIES, rows, 3)
+    const result = removeCategory(BASE_CATEGORIES, rows, 3, '2026-10-14')
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const fallback = result.categories.find((category) => category.name === FALLBACK_CATEGORY)
-    expect(fallback?.kind).toBe('income')
-    expect(result.rows[0]?.categoryId).toBe(fallback?.id)
-  })
-
-  it('若「其他」已存在则复用，不重复创建', () => {
-    const categories = [...BASE_CATEGORIES, cat(9, 'expense', FALLBACK_CATEGORY, 90)]
-    const rows = [row({ id: 1, date: '2026-10-01', kind: 'expense', amountCents: 100, categoryId: 2 })]
-    const result = removeCategory(categories, rows, 2)
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.categories.filter((category) => category.name === FALLBACK_CATEGORY)).toHaveLength(1)
-    expect(result.rows[0]?.categoryId).toBe(9)
+    expect(result.rows[0]?.deletedAt).toBe('2026-10-14')
+    expect(result.categories.some((category) => category.id === 3)).toBe(false)
   })
 })
 

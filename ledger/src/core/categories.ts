@@ -4,15 +4,13 @@
  * 规则：
  * - 分类名在「同一收支类型内」唯一（历史缺陷：同名分类会让筛选与统计歧义）。
  * - 重命名只改名字：账目通过 categoryId 关联，历史账目自动跟着新名字走。
- * - 删除有账目引用的分类时，账目迁移到「其他」分类（自动创建），绝不丢数据。
- * - 排序在同类型内进行，交换 sortOrder。
+ * - 删除分类时，其下尚未删除的账目一并软删除（进回收站，可恢复）；
+ *   已软删除的账目保持不变。不做「迁移到其他」——用户要的是删除即删除。
  */
 import type { Category, LedgerRow, TxKind } from './types'
 
-export const FALLBACK_CATEGORY = '其他'
-
 export type CategoryOp =
-  | { ok: true; categories: Category[]; rows: LedgerRow[] }
+  | { ok: true; categories: Category[]; rows: LedgerRow[]; removedCount: number }
   | { ok: false; error: string }
 
 function nameTaken(
@@ -47,7 +45,7 @@ export function addCategory(
     name: trimmed,
     sortOrder: maxOrder(categories, kind) + 10,
   }
-  return { ok: true, categories: [...categories, category], rows: [...rows] }
+  return { ok: true, categories: [...categories, category], rows: [...rows], removedCount: 0 }
 }
 
 export function renameCategory(
@@ -69,45 +67,35 @@ export function renameCategory(
     ok: true,
     categories: categories.map((category) => (category.id === id ? { ...category, name: trimmed } : category)),
     rows: [...rows],
+    removedCount: 0,
   }
 }
 
+/**
+ * 删除分类。其下尚未删除的账目一并软删除（用 now 作为删除时间戳）。
+ * @param now 软删除时间戳，例如当前日期字符串
+ */
 export function removeCategory(
   categories: readonly Category[],
   rows: readonly LedgerRow[],
   id: number,
+  now: string,
 ): CategoryOp {
   const target = categories.find((category) => category.id === id)
   if (!target) return { ok: false, error: '分类不存在' }
 
-  const referenced = rows.filter((row) => row.categoryId === id && row.deletedAt === undefined)
-  if (referenced.length === 0) {
-    return { ok: true, categories: categories.filter((category) => category.id !== id), rows: [...rows] }
-  }
-
-  // 有账目引用：迁移到「其他」，绝不丢账
-  const existing = categories.find(
-    (category) => category.kind === target.kind && category.name === FALLBACK_CATEGORY,
-  )
-
-  let nextCategories: Category[]
-  let fallbackId: number
-  if (existing) {
-    fallbackId = existing.id
-    nextCategories = categories.filter((category) => category.id !== id)
-  } else {
-    const maxId = categories.reduce((max, category) => Math.max(max, category.id), 0)
-    fallbackId = maxId + 1
-    nextCategories = [
-      ...categories.filter((category) => category.id !== id),
-      { id: fallbackId, kind: target.kind, name: FALLBACK_CATEGORY, sortOrder: maxOrder(categories, target.kind) + 10 },
-    ]
-  }
+  let removedCount = 0
+  const nextRows = rows.map((row) => {
+    if (row.categoryId !== id || row.deletedAt !== undefined) return row
+    removedCount += 1
+    return { ...row, deletedAt: now }
+  })
 
   return {
     ok: true,
-    categories: nextCategories,
-    rows: rows.map((row) => (row.categoryId === id ? { ...row, categoryId: fallbackId } : row)),
+    categories: categories.filter((category) => category.id !== id),
+    rows: nextRows,
+    removedCount,
   }
 }
 

@@ -215,7 +215,7 @@ export function renameCategoryAction(id: number, name: string): string | null {
 }
 
 export function removeCategoryAction(id: number): string | null {
-  const result = removeCategory(state.categories, state.rows, id)
+  const result = removeCategory(state.categories, state.rows, id, state.referenceDate)
   if (!result.ok) return result.error
   setState({ ...state, categories: result.categories, rows: result.rows })
   return null

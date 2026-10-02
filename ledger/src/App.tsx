@@ -6,13 +6,13 @@ import { categoryById, removeRow, restoreRow, useLedger } from './core/store'
 import { EntryPage } from './ui/EntryPage'
 import { ManagePage } from './ui/ManagePage'
 import { MonthPage } from './ui/MonthPage'
-import { TabBar, type TabId } from './ui/TabBar'
+import { SideBar, type TabId } from './ui/SideBar'
 import { TodayPage } from './ui/TodayPage'
 import { TriagePage } from './ui/TriagePage'
 import { TxEditor } from './ui/TxEditor'
 
 /**
- * 应用壳：底部导航 + 四个页面 + 全屏归类 + 编辑面板 + 撤销提示。
+ * 应用壳：左侧导航 + 四个页面 + 全屏归类 + 编辑面板 + 撤销提示。
  */
 export default function App() {
   const { categories, rows } = useLedger()
@@ -38,19 +38,21 @@ export default function App() {
   }, [undo])
 
   return (
-    <div className="app">
-      {triageOpen ? (
-        <TriagePage onClose={() => setTriageOpen(false)} />
-      ) : (
-        <>
-          {page === 'entry' && <EntryPage onEdit={setEditing} />}
-          {page === 'today' && <TodayPage onEdit={setEditing} />}
-          {page === 'month' && <MonthPage onEdit={setEditing} onOpenTriage={() => setTriageOpen(true)} />}
-          {page === 'manage' && <ManagePage />}
-        </>
-      )}
+    <div className="app-shell">
+      {!triageOpen && <SideBar page={page} onChange={setPage} pendingCount={pending.length} />}
 
-      {!triageOpen && <TabBar page={page} onChange={setPage} pendingCount={pending.length} />}
+      <main className="main">
+        {triageOpen ? (
+          <TriagePage onClose={() => setTriageOpen(false)} />
+        ) : (
+          <>
+            {page === 'entry' && <EntryPage onEdit={setEditing} />}
+            {page === 'today' && <TodayPage onEdit={setEditing} />}
+            {page === 'month' && <MonthPage onEdit={setEditing} onOpenTriage={() => setTriageOpen(true)} />}
+            {page === 'manage' && <ManagePage />}
+          </>
+        )}
+      </main>
 
       {editing && <TxEditor key={editing.id} row={editing} onClose={() => setEditing(null)} onDelete={handleDelete} />}
 

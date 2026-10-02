@@ -48,11 +48,21 @@ button {
 
 /* ---------- 应用壳 ---------- */
 
-.app {
-  max-width: 560px;
-  margin: 0 auto;
+/* ---------- 应用壳 ---------- */
+
+.app-shell {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 18px;
   min-height: 100dvh;
-  padding: 26px 18px 120px;
+  padding: 26px 14px 64px;
+}
+
+.main {
+  flex: 1;
+  max-width: 560px;
+  min-width: 0;
 }
 
 .page {
@@ -1102,34 +1112,34 @@ button {
   margin-top: 24px;
 }
 
-/* ---------- 底部导航 ---------- */
+/* ---------- 左侧导航 ---------- */
 
-.tabbar {
-  position: fixed;
-  bottom: 18px;
-  left: 50%;
-  transform: translateX(-50%);
+.sidebar {
+  position: sticky;
+  top: 26px;
+  align-self: flex-start;
   display: flex;
-  gap: 4px;
-  padding: 7px;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
   border: 1px solid rgb(255 255 255 / 70%);
-  border-radius: 999px;
+  border-radius: 26px;
   background: rgb(255 255 255 / 88%);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 12px 36px rgb(60 50 30 / 16%);
+  box-shadow: 0 12px 36px rgb(60 50 30 / 14%);
   z-index: 40;
 }
 
-.tabbar__item {
+.sidebar__item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  min-width: 72px;
-  padding: 8px 14px;
+  gap: 4px;
+  min-width: 74px;
+  padding: 13px 12px;
   border: none;
-  border-radius: 999px;
+  border-radius: 19px;
   background: transparent;
   color: var(--muted);
   font-size: 11px;
@@ -1137,20 +1147,24 @@ button {
   transition: all 0.18s ease;
 }
 
-.tabbar__item.is-active {
+.sidebar__item:hover {
+  color: var(--ink);
+}
+
+.sidebar__item.is-active {
   background: var(--ink);
   color: #fff;
 }
 
-.tabbar__icon {
+.sidebar__icon {
   position: relative;
   display: inline-flex;
 }
 
-.tabbar__badge {
+.sidebar__badge {
   position: absolute;
-  top: -4px;
-  right: -9px;
+  top: -5px;
+  right: -10px;
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
@@ -1161,6 +1175,51 @@ button {
   font-weight: 700;
   line-height: 16px;
   text-align: center;
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    gap: 10px;
+    padding: 18px 8px 48px;
+  }
+
+  .sidebar {
+    top: 18px;
+    border-radius: 20px;
+  }
+
+  .sidebar__item {
+    min-width: 58px;
+    padding: 11px 8px;
+  }
+}
+
+/* ---------- 折叠区 ---------- */
+
+.collapsible-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 2px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.collapsible-caret {
+  color: var(--faint);
+  font-size: 14px;
+  transition: transform 0.2s ease;
+}
+
+.collapsible-caret.is-open {
+  transform: rotate(90deg);
 }
 
 /* ---------- 编辑面板（bottom sheet） ---------- */
@@ -1283,7 +1342,7 @@ button {
 
 .snackbar {
   position: fixed;
-  bottom: 96px;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
