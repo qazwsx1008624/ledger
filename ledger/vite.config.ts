@@ -12,7 +12,10 @@ import react from '@vitejs/plugin-react'
 // 4. 端口必须固定：OPFS 按 origin 分区，dev 默认 5173、preview 默认 4173，
 //    端口一变就是另一个空数据库，会让人误以为账目丢了。
 // 5. optimizeDeps.exclude：这个包自带 .wasm 加载逻辑，交给 Vite 预打包会出问题。
+// 6. base './'：相对路径资源。GitHub Pages 部署在子路径（username.github.io/repo）下，
+//    绝对路径 /assets 会 404；相对路径在任何子路径都能工作。
 export default defineConfig({
+  base: './',
   plugins: [react()],
   optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
   worker: { format: 'es' },
