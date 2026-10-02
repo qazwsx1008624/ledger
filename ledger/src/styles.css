@@ -51,18 +51,14 @@ button {
 /* ---------- 应用壳 ---------- */
 
 .app-shell {
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  gap: 18px;
   min-height: 100dvh;
-  padding: 26px 14px 64px;
+  padding: 0 14px 64px;
 }
 
 .main {
-  flex: 1;
   max-width: 560px;
-  min-width: 0;
+  margin: 0 auto;
+  padding-top: 24px;
 }
 
 .page {
@@ -1112,56 +1108,68 @@ button {
   margin-top: 24px;
 }
 
-/* ---------- 左侧导航 ---------- */
+/* ---------- 顶部导航（右上角） ---------- */
 
-.sidebar {
+.topnav {
   position: sticky;
-  top: 26px;
-  align-self: flex-start;
+  top: 14px;
+  z-index: 40;
   display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 8px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 680px;
+  margin: 14px auto 0;
+  padding: 10px 10px 10px 22px;
   border: 1px solid rgb(255 255 255 / 70%);
-  border-radius: 26px;
-  background: rgb(255 255 255 / 88%);
+  border-radius: 24px;
+  background: rgb(255 255 255 / 90%);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 12px 36px rgb(60 50 30 / 14%);
-  z-index: 40;
+  box-shadow: 0 12px 36px rgb(60 50 30 / 12%);
 }
 
-.sidebar__item {
+.topnav__brand {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.topnav__tabs {
   display: flex;
-  flex-direction: column;
+  gap: 3px;
+}
+
+.topnav__item {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  min-width: 74px;
-  padding: 13px 12px;
+  gap: 6px;
+  padding: 9px 14px;
   border: none;
-  border-radius: 19px;
+  border-radius: 15px;
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12.5px;
   cursor: pointer;
   transition: all 0.18s ease;
 }
 
-.sidebar__item:hover {
+.topnav__item:hover {
   color: var(--ink);
 }
 
-.sidebar__item.is-active {
+.topnav__item.is-active {
   background: var(--ink);
   color: #fff;
 }
 
-.sidebar__icon {
+.topnav__icon {
   position: relative;
   display: inline-flex;
 }
 
-.sidebar__badge {
+.topnav__badge {
   position: absolute;
   top: -5px;
   right: -10px;
@@ -1178,19 +1186,23 @@ button {
 }
 
 @media (max-width: 640px) {
-  .app-shell {
-    gap: 10px;
-    padding: 18px 8px 48px;
-  }
-
-  .sidebar {
-    top: 18px;
+  .topnav {
+    top: 8px;
+    margin-top: 8px;
+    padding: 8px 8px 8px 16px;
     border-radius: 20px;
   }
 
-  .sidebar__item {
-    min-width: 58px;
-    padding: 11px 8px;
+  .topnav__brand {
+    font-size: 13.5px;
+  }
+
+  .topnav__item {
+    padding: 8px 9px;
+  }
+
+  .topnav__label {
+    display: none;
   }
 }
 

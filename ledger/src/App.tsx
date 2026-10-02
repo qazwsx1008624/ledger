@@ -6,8 +6,8 @@ import { categoryById, removeRow, restoreRow, useLedger } from './core/store'
 import { EntryPage } from './ui/EntryPage'
 import { ManagePage } from './ui/ManagePage'
 import { MonthPage } from './ui/MonthPage'
-import { SideBar, type TabId } from './ui/SideBar'
 import { TodayPage } from './ui/TodayPage'
+import { TopNav, type TabId } from './ui/TopNav'
 import { TriagePage } from './ui/TriagePage'
 import { TxEditor } from './ui/TxEditor'
 
@@ -39,7 +39,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      {!triageOpen && <SideBar page={page} onChange={setPage} pendingCount={pending.length} />}
+      <TopNav page={page} onChange={setPage} pendingCount={pending.length} />
 
       <main className="main">
         {triageOpen ? (
