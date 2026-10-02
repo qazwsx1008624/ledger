@@ -11,6 +11,8 @@ export interface Category {
 
 export interface LedgerRow {
   id: number
+  /** 全局唯一标识，跨设备合并同步的去重键 */
+  uuid: string
   /** YYYY-MM-DD，按本地时区 */
   date: string
   kind: TxKind
@@ -24,4 +26,6 @@ export interface LedgerRow {
   pendingCategory?: boolean
   /** 软删除时间戳；非空表示已删除，不得计入任何统计 */
   deletedAt?: string
+  /** 最后修改时间（ISO），合并同步时新的赢 */
+  updatedAt: string
 }

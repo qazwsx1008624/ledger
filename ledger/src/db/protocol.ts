@@ -14,6 +14,10 @@ export type Request =
   | { id: number; op: 'record_backup' }
   | { id: number; op: 'export' }
   | { id: number; op: 'import'; bytes: Uint8Array }
+  /** 读取导入文件的内容（不落地到主库），供合并同步用 */
+  | { id: number; op: 'inspect_import'; bytes: Uint8Array }
+  /** 合并结果全量写回：清空 transactions 后批量插入；新分类一并插入 */
+  | { id: number; op: 'replace_transactions'; rows: RawRow[]; newCategories: RawCategory[] }
 
 export type Response =
   | { id: number; ok: true; rows?: unknown[]; row?: unknown; error?: undefined }
@@ -22,6 +26,7 @@ export type Response =
 /** bootstrap 返回的原始行（SQLite 里 0/1 表示布尔） */
 export interface RawRow {
   id: number
+  uuid: string
   date: string
   kind: string
   amountCents: number
@@ -30,6 +35,7 @@ export interface RawRow {
   isRefund: number
   pendingCategory: number
   deletedAt: string | null
+  updatedAt: string
 }
 
 export interface RawCategory {

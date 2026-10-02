@@ -13,7 +13,7 @@ import type { LedgerRow } from './types'
 
 /** 构造一条账目，只写关心的字段 */
 function row(partial: Partial<LedgerRow> & Pick<LedgerRow, 'id' | 'date' | 'kind' | 'amountCents'>): LedgerRow {
-  return { categoryId: 1, note: '', ...partial }
+  return { uuid: `u-${partial.id}`, categoryId: 1, note: '', updatedAt: '2026-10-01T00:00:00.000Z', ...partial }
 }
 
 const CAT_FOOD = 1

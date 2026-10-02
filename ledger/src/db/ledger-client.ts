@@ -2,7 +2,7 @@
  * Worker 客户端：把 postMessage 包装成可 await 的调用。
  * 主线程只通过这里访问数据库，不直接接触 SQLite。
  */
-import type { BindValue, BootstrapData, Request, Response } from './protocol'
+import type { BindValue, BootstrapData, RawCategory, RawRow, Request, Response } from './protocol'
 
 let worker: Worker | null = null
 let nextId = 1
@@ -97,6 +97,17 @@ export async function recordBackup(): Promise<{ at: string; count: number }> {
 /** 用外部 .sqlite 文件覆盖当前数据库（导入备份），之后需要重新 bootstrap */
 export async function importBytes(bytes: Uint8Array): Promise<void> {
   await call((id) => ({ id, op: 'import', bytes }))
+}
+
+/** 读取导入文件内容（不落地主库），供合并同步计算用 */
+export async function inspectImport(bytes: Uint8Array): Promise<{ categories: RawCategory[]; rows: RawRow[] }> {
+  const response = await call((id) => ({ id, op: 'inspect_import', bytes }))
+  return response.row as { categories: RawCategory[]; rows: RawRow[] }
+}
+
+/** 合并结果全量写回（事务内清空重插） */
+export async function replaceTransactions(rows: RawRow[], newCategories: RawCategory[]): Promise<void> {
+  await call((id) => ({ id, op: 'replace_transactions', rows, newCategories }))
 }
 
 /** 导出数据库字节，用于备份成 .sqlite 文件 */

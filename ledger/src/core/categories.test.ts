@@ -9,7 +9,7 @@ function cat(id: number, kind: 'income' | 'expense', name: string, sortOrder: nu
 }
 
 function row(partial: Partial<LedgerRow> & Pick<LedgerRow, 'id' | 'date' | 'kind' | 'amountCents'>): LedgerRow {
-  return { categoryId: 1, note: '', ...partial }
+  return { uuid: `u-${partial.id}`, categoryId: 1, note: '', updatedAt: '2026-10-01T00:00:00.000Z', ...partial }
 }
 
 const BASE_CATEGORIES = [cat(1, 'expense', '饮食', 10), cat(2, 'expense', '购物', 20), cat(3, 'income', '家人生活费', 10)]

@@ -47,6 +47,7 @@ const SCHEMA = `
 
   CREATE TABLE IF NOT EXISTS transactions (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid             TEXT    NOT NULL DEFAULT '',
     date             TEXT    NOT NULL,
     kind             TEXT    NOT NULL CHECK (kind IN ('income', 'expense')),
     amount_cents     INTEGER NOT NULL CHECK (amount_cents >= 0),
@@ -54,10 +55,12 @@ const SCHEMA = `
     note             TEXT    NOT NULL DEFAULT '',
     is_refund        INTEGER NOT NULL DEFAULT 0,
     pending_category INTEGER NOT NULL DEFAULT 0,
-    deleted_at       TEXT
+    deleted_at       TEXT,
+    updated_at       TEXT    NOT NULL DEFAULT ''
   );
   CREATE INDEX IF NOT EXISTS idx_tx_date     ON transactions (date);
   CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions (category_id);
+  CREATE INDEX IF NOT EXISTS idx_tx_uuid     ON transactions (uuid);
 
   CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
@@ -113,6 +116,9 @@ async function open(): Promise<Opened> {
   db.exec('PRAGMA journal_mode=DELETE;')
   db.exec(SCHEMA)
 
+  // 迁移旧库：补 uuid / updated_at 列与旧行数据
+  migrateColumns(db)
+
   // 种子分类只在首次建库时写入，之后不会覆盖用户改动
   db.exec('BEGIN;')
   try {
@@ -130,6 +136,32 @@ async function open(): Promise<Opened> {
 
   opened = { db, pool, sqlite3 }
   return opened
+}
+
+/**
+ * 旧版本数据库没有 uuid / updated_at 列。SQLite 的 ALTER TABLE 不支持 IF NOT EXISTS，
+ * 用 pragma_table_info 检查列是否存在；缺失则加列，并为旧行补齐数据。
+ * uuid 是合并同步的去重键，updated_at 决定冲突时谁赢——两者都不能为空。
+ */
+function migrateColumns(db: Db): void {
+  function hasColumn(table: string, column: string): boolean {
+    const row = db.selectObject(
+      `SELECT COUNT(*) AS c FROM pragma_table_info('${table}') WHERE name = '${column}'`,
+    )
+    return Number(row?.c ?? 0) > 0
+  }
+
+  if (!hasColumn('transactions', 'uuid')) {
+    db.exec("ALTER TABLE transactions ADD COLUMN uuid TEXT NOT NULL DEFAULT ''")
+  }
+  if (!hasColumn('transactions', 'updated_at')) {
+    db.exec("ALTER TABLE transactions ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
+  }
+
+  db.createFunction('js_uuid', () => crypto.randomUUID())
+  db.createFunction('js_now', () => new Date().toISOString())
+  db.exec("UPDATE transactions SET uuid = js_uuid() WHERE uuid = '' OR uuid IS NULL")
+  db.exec("UPDATE transactions SET updated_at = js_now() WHERE updated_at = '' OR updated_at IS NULL")
 }
 
 function reply(message: Response, transfer?: Transferable[]): void {
@@ -155,8 +187,9 @@ self.onmessage = async (event: MessageEvent<Request>) => {
           'SELECT id, kind, name, sort_order AS sortOrder FROM categories ORDER BY kind, sort_order, id',
         )
         const rows = db.selectObjects(
-          `SELECT id, date, kind, amount_cents AS amountCents, category_id AS categoryId, note,
-                  is_refund AS isRefund, pending_category AS pendingCategory, deleted_at AS deletedAt
+          `SELECT id, uuid, date, kind, amount_cents AS amountCents, category_id AS categoryId, note,
+                  is_refund AS isRefund, pending_category AS pendingCategory, deleted_at AS deletedAt,
+                  updated_at AS updatedAt
            FROM transactions ORDER BY id`,
         )
         const budget = db.selectObject("SELECT value FROM meta WHERE key = 'budget_cents'")
@@ -220,6 +253,87 @@ self.onmessage = async (event: MessageEvent<Request>) => {
         opened = null
         await pool.OpfsSAHPoolDb.importDb(DB_FILE, request.bytes)
         await open()
+        reply({ id: request.id, ok: true })
+        break
+      }
+
+      case 'inspect_import': {
+        // 把导入文件放到临时库中读取内容，供主线程做合并计算；不碰主库
+        const tempFile = '/import-temp.sqlite3'
+        await pool.OpfsSAHPoolDb.importDb(tempFile, request.bytes)
+        const temp = new pool.OpfsSAHPoolDb(tempFile)
+        try {
+          const hasUuid =
+            Number(
+              temp.selectObject("SELECT COUNT(*) AS c FROM pragma_table_info('transactions') WHERE name = 'uuid'")
+                ?.c ?? 0,
+            ) > 0
+          const hasUpdated =
+            Number(
+              temp.selectObject(
+                "SELECT COUNT(*) AS c FROM pragma_table_info('transactions') WHERE name = 'updated_at'",
+              )?.c ?? 0,
+            ) > 0
+
+          const categories = temp.selectObjects(
+            'SELECT id, kind, name, sort_order AS sortOrder FROM categories ORDER BY kind, sort_order, id',
+          )
+          const rows = temp.selectObjects(
+            `SELECT id, ${hasUuid ? 'uuid' : "'' AS uuid"}, date, kind,
+                    amount_cents AS amountCents, category_id AS categoryId, note,
+                    is_refund AS isRefund, pending_category AS pendingCategory,
+                    deleted_at AS deletedAt,
+                    ${hasUpdated ? 'updated_at AS updatedAt' : "'' AS updatedAt"}
+             FROM transactions ORDER BY id`,
+          )
+          reply({
+            id: request.id,
+            ok: true,
+            row: { categories, rows },
+          })
+        } finally {
+          temp.close()
+          pool.unlink(tempFile)
+        }
+        break
+      }
+
+      case 'replace_transactions': {
+        // 合并同步的写回：事务里清空账目表后批量插入；新分类一并插入
+        db.exec('BEGIN;')
+        try {
+          db.exec('DELETE FROM transactions')
+          for (const row of request.rows) {
+            db.exec({
+              sql: `INSERT INTO transactions
+                      (id, uuid, date, kind, amount_cents, category_id, note, is_refund, pending_category, deleted_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              bind: [
+                row.id,
+                row.uuid,
+                row.date,
+                row.kind,
+                row.amountCents,
+                row.categoryId,
+                row.note,
+                row.isRefund,
+                row.pendingCategory,
+                row.deletedAt,
+                row.updatedAt,
+              ],
+            })
+          }
+          for (const category of request.newCategories) {
+            db.exec({
+              sql: 'INSERT INTO categories (id, kind, name, sort_order) VALUES (?, ?, ?, ?)',
+              bind: [category.id, category.kind, category.name, category.sortOrder],
+            })
+          }
+          db.exec('COMMIT;')
+        } catch (err) {
+          db.exec('ROLLBACK;')
+          throw err
+        }
         reply({ id: request.id, ok: true })
         break
       }

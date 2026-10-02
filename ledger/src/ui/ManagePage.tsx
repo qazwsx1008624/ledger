@@ -11,6 +11,7 @@ import {
   exportBackup,
   importBackup,
   loadDemoData,
+  mergeImportBytes,
   moveCategoryAction,
   removeCategoryAction,
   renameCategoryAction,
@@ -86,6 +87,7 @@ export function ManagePage() {
 
 function DataCard({ lastBackup }: { lastBackup: { at: string; count: number } | null }) {
   const fileRef = useRef<HTMLInputElement>(null)
+  const mergeFileRef = useRef<HTMLInputElement>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -122,6 +124,22 @@ function DataCard({ lastBackup }: { lastBackup: { at: string; count: number } | 
     }
   }
 
+  async function handleMergeFile(file: File) {
+    setError(null)
+    setNotice(null)
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const result = await mergeImportBytes(bytes)
+      setNotice(
+        `已合并：新增 ${result.added} 笔、更新 ${result.updated} 笔${result.remapped > 0 ? `、${result.remapped} 笔重映射分类` : ''}。两边数据都不会丢。`,
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (mergeFileRef.current) mergeFileRef.current.value = ''
+    }
+  }
+
   async function handleDemo() {
     setError(null)
     setNotice(null)
@@ -142,7 +160,7 @@ function DataCard({ lastBackup }: { lastBackup: { at: string; count: number } | 
       </div>
 
       <p className="data-hint">
-        建议至少每月导出一次 <code>.sqlite</code> 备份。导出的文件可用 DB Browser for SQLite 等工具打开查看。
+        建议至少每月导出一次 <code>.sqlite</code> 备份。手机与电脑之间同步用「<strong>导入并合并</strong>」——两边的新账目都会保留，同一条取最新修改，不会互相覆盖丢失；「覆盖导入」只用于灾难恢复。
         {lastBackup && (
           <span className="data-hint__backup">
             上次导出：{lastBackup.at.slice(0, 10)}（{lastBackup.count} 笔）
@@ -154,8 +172,21 @@ function DataCard({ lastBackup }: { lastBackup: { at: string; count: number } | 
         <button className="btn btn--primary" onClick={() => void handleExport()}>
           导出备份
         </button>
+        <button className="btn" onClick={() => mergeFileRef.current?.click()}>
+          导入并合并
+        </button>
+        <input
+          ref={mergeFileRef}
+          type="file"
+          accept=".sqlite,.db,.sqlite3"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            if (file) void handleMergeFile(file)
+          }}
+        />
         <button className="btn" onClick={() => fileRef.current?.click()}>
-          导入备份
+          覆盖导入
         </button>
         <input
           ref={fileRef}

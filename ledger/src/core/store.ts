@@ -10,6 +10,7 @@
 import { useSyncExternalStore } from 'react'
 import type { Category, LedgerRow, TxKind } from './types'
 import { addCategory, moveCategory, removeCategory, renameCategory } from './categories'
+import { mergeLedger } from './merge'
 import { shiftDay, todayISO } from './money'
 import * as db from '../db/ledger-client'
 import type { BootstrapData, RawRow } from '../db/protocol'
@@ -70,6 +71,7 @@ export function useLedger(): LedgerState {
 function mapRows(raw: readonly RawRow[]): LedgerRow[] {
   return raw.map((row) => ({
     id: row.id,
+    uuid: row.uuid,
     date: row.date,
     kind: row.kind as TxKind,
     amountCents: row.amountCents,
@@ -78,7 +80,24 @@ function mapRows(raw: readonly RawRow[]): LedgerRow[] {
     ...(row.isRefund === 1 ? { isRefund: true } : {}),
     ...(row.pendingCategory === 1 ? { pendingCategory: true } : {}),
     ...(row.deletedAt !== null ? { deletedAt: row.deletedAt } : {}),
+    updatedAt: row.updatedAt,
   }))
+}
+
+function toRawRow(row: LedgerRow): RawRow {
+  return {
+    id: row.id,
+    uuid: row.uuid,
+    date: row.date,
+    kind: row.kind,
+    amountCents: row.amountCents,
+    categoryId: row.categoryId,
+    note: row.note,
+    isRefund: row.isRefund === true ? 1 : 0,
+    pendingCategory: row.pendingCategory === true ? 1 : 0,
+    deletedAt: row.deletedAt ?? null,
+    updatedAt: row.updatedAt,
+  }
 }
 
 function applyBootstrap(data: BootstrapData): void {
@@ -129,11 +148,17 @@ export async function reloadLedger(): Promise<void> {
 /* 账目操作                                                            */
 /* ------------------------------------------------------------------ */
 
-export async function addRow(draft: Omit<LedgerRow, 'id'>): Promise<void> {
+/** 新增账目时不需要提供的字段（id / uuid / updatedAt 由数据层生成） */
+export type RowInput = Omit<LedgerRow, 'id' | 'uuid' | 'updatedAt'>
+
+export async function addRow(draft: RowInput): Promise<void> {
+  const uuid = crypto.randomUUID()
+  const updatedAt = new Date().toISOString()
   const id = await db.insert(
-    `INSERT INTO transactions (date, kind, amount_cents, category_id, note, is_refund, pending_category)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO transactions (uuid, date, kind, amount_cents, category_id, note, is_refund, pending_category, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
+      uuid,
       draft.date,
       draft.kind,
       draft.amountCents,
@@ -141,15 +166,17 @@ export async function addRow(draft: Omit<LedgerRow, 'id'>): Promise<void> {
       draft.note,
       draft.isRefund === true ? 1 : 0,
       draft.pendingCategory === true ? 1 : 0,
+      updatedAt,
     ],
   )
-  setState({ rows: [...state.rows, { ...draft, id }] })
+  setState({ rows: [...state.rows, { ...draft, id, uuid, updatedAt }] })
 }
 
-export async function updateRow(id: number, full: Omit<LedgerRow, 'id'>): Promise<void> {
+export async function updateRow(id: number, full: RowInput): Promise<void> {
+  const updatedAt = new Date().toISOString()
   await db.run(
     `UPDATE transactions
-     SET date = ?, kind = ?, amount_cents = ?, category_id = ?, note = ?, is_refund = ?, pending_category = ?
+     SET date = ?, kind = ?, amount_cents = ?, category_id = ?, note = ?, is_refund = ?, pending_category = ?, updated_at = ?
      WHERE id = ?`,
     [
       full.date,
@@ -159,30 +186,33 @@ export async function updateRow(id: number, full: Omit<LedgerRow, 'id'>): Promis
       full.note,
       full.isRefund === true ? 1 : 0,
       full.pendingCategory === true ? 1 : 0,
+      updatedAt,
       id,
     ],
   )
   setState({
-    rows: state.rows.map((row) => (row.id === id ? { ...full, id } : row)),
+    rows: state.rows.map((row) => (row.id === id ? { ...full, id, uuid: row.uuid, updatedAt } : row)),
   })
 }
 
-/** 软删除：写时间戳，可恢复 */
+/** 软删除：写时间戳，可恢复。删除也是一种修改，同步更新 updated_at */
 export async function removeRow(id: number): Promise<void> {
   const at = state.referenceDate
-  await db.run('UPDATE transactions SET deleted_at = ? WHERE id = ?', [at, id])
+  const updatedAt = new Date().toISOString()
+  await db.run('UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE id = ?', [at, updatedAt, id])
   setState({
-    rows: state.rows.map((row) => (row.id === id ? { ...row, deletedAt: at } : row)),
+    rows: state.rows.map((row) => (row.id === id ? { ...row, deletedAt: at, updatedAt } : row)),
   })
 }
 
 export async function restoreRow(id: number): Promise<void> {
-  await db.run('UPDATE transactions SET deleted_at = NULL WHERE id = ?', [id])
+  const updatedAt = new Date().toISOString()
+  await db.run('UPDATE transactions SET deleted_at = NULL, updated_at = ? WHERE id = ?', [updatedAt, id])
   setState({
     rows: state.rows.map((row) => {
       if (row.id !== id) return row
       const { deletedAt: _dropped, ...rest } = row
-      return rest
+      return { ...rest, updatedAt }
     }),
   })
 }
@@ -281,6 +311,40 @@ export async function importBackup(bytes: Uint8Array): Promise<void> {
   await reloadLedger()
 }
 
+/**
+ * 合并式导入（日常手动同步用）：读入文件内容，与本地账本按 uuid 合并后写回。
+ * 规则见 src/core/merge.ts——两边的新账目都在，同一条按 updatedAt 取新，绝不覆盖丢数据。
+ */
+export async function mergeImportBytes(
+  bytes: Uint8Array,
+): Promise<{ added: number; updated: number; remapped: number }> {
+  const incoming = await db.inspectImport(bytes)
+  const incomingCategories: Category[] = incoming.categories.map((category) => ({
+    id: category.id,
+    kind: category.kind as TxKind,
+    name: category.name,
+    sortOrder: category.sortOrder,
+  }))
+  const incomingRows = mapRows(incoming.rows)
+
+  const result = mergeLedger(state.categories, state.rows, incomingCategories, incomingRows)
+
+  const existingIds = new Set(state.categories.map((category) => category.id))
+  const newCategories = result.categories
+    .filter((category) => !existingIds.has(category.id))
+    .map((category) => ({
+      id: category.id,
+      kind: category.kind,
+      name: category.name,
+      sortOrder: category.sortOrder,
+    }))
+
+  await db.replaceTransactions(result.rows.map(toRawRow), newCategories)
+  await db.recordBackup()
+  await reloadLedger()
+  return { added: result.added, updated: result.updated, remapped: result.remapped }
+}
+
 /* ------------------------------------------------------------------ */
 /* 演示数据（体验用）                                                   */
 /* ------------------------------------------------------------------ */
@@ -331,10 +395,13 @@ export async function loadDemoData(): Promise<void> {
   for (const [offset, kind, cents, note, flag] of plan) {
     const idPool = kind === 'income' ? incomeIds : expenseIds
     const categoryId = idPool[offset % idPool.length] ?? idPool[0] ?? 0
+    const uuid = crypto.randomUUID()
+    const updatedAt = new Date().toISOString()
     await db.insert(
-      `INSERT INTO transactions (date, kind, amount_cents, category_id, note, is_refund, pending_category)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO transactions (uuid, date, kind, amount_cents, category_id, note, is_refund, pending_category, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
+        uuid,
         shiftDay(today, offset),
         kind,
         cents,
@@ -342,6 +409,7 @@ export async function loadDemoData(): Promise<void> {
         note,
         flag === 'refund' ? 1 : 0,
         flag === 'pending' ? 1 : 0,
+        updatedAt,
       ],
     )
   }
