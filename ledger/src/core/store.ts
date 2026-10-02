@@ -1,150 +1,50 @@
 /**
- * 演示用的内存数据源。
+ * 数据源：内存缓存 + SQLite 持久化（经由 src/db 的 Worker 客户端）。
  *
- * 这一版刻意不接 SQLite：demo 的目的是评估交互与统计口径，
- * 而持久化那一层不改变使用体验。代价是刷新页面数据重置。
- * 接真实数据库时应替换本文件，保持对外接口（动作函数）不变。
+ * 架构取舍：
+ * - UI 层照旧从 useSyncExternalStore 同步读取缓存，统计走 core 里的纯函数。
+ * - 每次操作先写 SQLite（await），成功后更新缓存。数据量小（一年一两千条），
+ *   全量缓存没有任何性能问题，换来 UI 层零异步改动。
+ * - id 一律以 SQLite 自增为准；分类纯函数里临时分配的 id 在写库后会被真实 id 替换。
  */
 import { useSyncExternalStore } from 'react'
 import type { Category, LedgerRow, TxKind } from './types'
 import { addCategory, moveCategory, removeCategory, renameCategory } from './categories'
+import { shiftDay, todayISO } from './money'
+import * as db from '../db/ledger-client'
+import type { BootstrapData, RawRow } from '../db/protocol'
 
 export interface LedgerState {
-  /** demo 用的「今天」。真实实现里应取系统日期 */
+  status: 'loading' | 'ready' | 'error'
+  errorMessage: string | null
+  /** 应用认为的「今天」。真实版本取系统日期 */
   referenceDate: string
   categories: Category[]
   rows: LedgerRow[]
-  /** 本月预期花销（分）；null 表示未设定 */
+  /** 月度预期花销（分）；null 表示未设定 */
   budgetCents: number | null
+  /** 启动一致性检查：本地为空但备份清单显示历史上有过数据 */
+  dataLossWarning: boolean
+  lastBackup: { at: string; count: number } | null
 }
 
-/** 预置分类，按大学生活费场景 */
-const SEED_CATEGORIES: readonly Omit<Category, 'id'>[] = [
-  { kind: 'expense', name: '饮食', sortOrder: 10 },
-  { kind: 'expense', name: '日用', sortOrder: 20 },
-  { kind: 'expense', name: '水电通讯', sortOrder: 30 },
-  { kind: 'expense', name: '交通', sortOrder: 40 },
-  { kind: 'expense', name: '购物', sortOrder: 50 },
-  { kind: 'expense', name: '娱乐', sortOrder: 60 },
-  { kind: 'expense', name: '学习', sortOrder: 70 },
-  { kind: 'expense', name: '医疗', sortOrder: 80 },
-  { kind: 'income', name: '家人生活费', sortOrder: 10 },
-  { kind: 'income', name: '兼职', sortOrder: 20 },
-  { kind: 'income', name: '奖学金', sortOrder: 30 },
-]
-
-function buildCategories(): Category[] {
-  return SEED_CATEGORIES.map((category, index) => ({ ...category, id: index + 1 }))
+const initial: LedgerState = {
+  status: 'loading',
+  errorMessage: null,
+  referenceDate: todayISO(),
+  categories: [],
+  rows: [],
+  budgetCents: null,
+  dataLossWarning: false,
+  lastBackup: null,
 }
 
-const CATEGORY_ID: Record<string, number> = {
-  饮食: 1,
-  日用: 2,
-  水电通讯: 3,
-  交通: 4,
-  购物: 5,
-  娱乐: 6,
-  学习: 7,
-  医疗: 8,
-  家人生活费: 9,
-  兼职: 10,
-  奖学金: 11,
-}
-
-/** 简写：[日期, 分类, 元, 备注, 标记] */
-type SeedTuple = readonly [string, keyof typeof CATEGORY_ID, number, string, 'refund' | 'pending' | '']
-
-const SEED_ROWS: readonly SeedTuple[] = [
-  // ---- 9 月 ----
-  ['2026-09-01', '家人生活费', 2000, '9 月生活费', ''],
-  ['2026-09-01', '购物', 380, '新生床品', ''],
-  ['2026-09-02', '饮食', 22, '食堂午饭', ''],
-  ['2026-09-02', '日用', 68, '洗发水 纸巾', ''],
-  ['2026-09-03', '饮食', 30, '食堂', ''],
-  ['2026-09-04', '水电通讯', 100, '话费充值', ''],
-  ['2026-09-05', '学习', 120, '教材', ''],
-  ['2026-09-06', '饮食', 55, '和同学吃饭', ''],
-  ['2026-09-07', '交通', 26, '公交地铁', ''],
-  ['2026-09-08', '饮食', 42, '食堂', ''],
-  ['2026-09-09', '日用', 95, '拖鞋 水杯', ''],
-  ['2026-09-10', '饮食', 118, '宿舍聚餐', ''],
-  ['2026-09-11', '娱乐', 60, '电影票', ''],
-  ['2026-09-12', '饮食', 38, '午饭', ''],
-  ['2026-09-13', '交通', 120, '打车回家', ''],
-  ['2026-09-14', '饮食', 26, '食堂', ''],
-  ['2026-09-15', '学习', 200, '打印文献', ''],
-  ['2026-09-16', '饮食', 138, '外卖', ''],
-  ['2026-09-17', '水电通讯', 80, '宿舍水电', ''],
-  ['2026-09-18', '饮食', 33, '食堂', ''],
-  ['2026-09-19', '购物', 260, '外套', ''],
-  ['2026-09-20', '饮食', 46, '食堂', ''],
-  ['2026-09-21', '娱乐', 88, 'KTV', ''],
-  ['2026-09-22', '饮食', 15, '早餐', ''],
-  ['2026-09-23', '日用', 42, '洗衣液', ''],
-  ['2026-09-24', '饮食', 72, '火锅', ''],
-  ['2026-09-25', '医疗', 85, '感冒药', ''],
-  ['2026-09-26', '饮食', 39, '食堂', ''],
-  ['2026-09-27', '交通', 40, '打车去车站', ''],
-  ['2026-09-28', '购物', 180, '鞋子', 'refund'],
-  ['2026-09-29', '饮食', 28, '食堂', ''],
-  ['2026-09-30', '学习', 130, '参考书', ''],
-
-  // ---- 10 月（截止到 demo 的今天 10-14）----
-  ['2026-10-01', '家人生活费', 2000, '10 月生活费', ''],
-  ['2026-10-01', '饮食', 62, '国庆和室友吃饭', ''],
-  ['2026-10-02', '饮食', 48, '食堂', ''],
-  ['2026-10-02', '交通', 35, '打车', ''],
-  ['2026-10-03', '购物', 220, '秋天的卫衣', ''],
-  ['2026-10-03', '日用', 54, '牙刷牙膏 抽纸', ''],
-  ['2026-10-04', '饮食', 76, '火锅', ''],
-  ['2026-10-05', '娱乐', 120, '电影和奶茶', ''],
-  ['2026-10-06', '水电通讯', 100, '话费', ''],
-  ['2026-10-07', '饮食', 41, '食堂', ''],
-  ['2026-10-08', '学习', 86, '打印课件', ''],
-  ['2026-10-08', '交通', 18, '地铁', ''],
-  ['2026-10-09', '饮食', 35, '食堂', ''],
-  ['2026-10-10', '购物', 150, '运动鞋', 'refund'],
-  ['2026-10-11', '饮食', 240, '三顿外卖', 'pending'],
-  ['2026-10-11', '日用', 36, '洗衣液', ''],
-  ['2026-10-12', '饮食', 52, '食堂', ''],
-  ['2026-10-12', '娱乐', 45, '游戏充值', ''],
-  ['2026-10-13', '兼职', 300, '家教', ''],
-  ['2026-10-13', '饮食', 29, '早餐 午饭', ''],
-  ['2026-10-14', '饮食', 58, '食堂', ''],
-  ['2026-10-14', '日用', 84, '超市采购', 'pending'],
-]
-
-function buildRows(): LedgerRow[] {
-  return SEED_ROWS.map(([date, category, yuan, note, flag], index) => {
-    const categoryId = CATEGORY_ID[category]
-    if (categoryId === undefined) throw new Error(`演示数据里的分类不存在：${category}`)
-    const kind: TxKind = categoryId >= 9 ? 'income' : 'expense'
-
-    return {
-      id: index + 1,
-      date,
-      kind,
-      // 元 -> 分。演示数据都是整数元，这里仍按最保守的方式换算
-      amountCents: Math.round(yuan * 100),
-      categoryId,
-      note,
-      ...(flag === 'refund' ? { isRefund: true } : {}),
-      ...(flag === 'pending' ? { pendingCategory: true } : {}),
-    }
-  })
-}
-
-let state: LedgerState = {
-  referenceDate: '2026-10-14',
-  categories: buildCategories(),
-  rows: buildRows(),
-  budgetCents: 200000,
-}
+let state: LedgerState = initial
 
 const listeners = new Set<() => void>()
 
-function setState(next: LedgerState): void {
-  state = next
+function setState(patch: Partial<LedgerState>): void {
+  state = { ...state, ...patch }
   for (const listener of listeners) listener()
 }
 
@@ -163,27 +63,122 @@ export function useLedger(): LedgerState {
   )
 }
 
-let nextId = SEED_ROWS.length + 1
+/* ------------------------------------------------------------------ */
+/* 启动与数据加载                                                       */
+/* ------------------------------------------------------------------ */
 
-export function addRow(draft: Omit<LedgerRow, 'id'>): void {
-  setState({ ...state, rows: [...state.rows, { ...draft, id: nextId++ }] })
+function mapRows(raw: readonly RawRow[]): LedgerRow[] {
+  return raw.map((row) => ({
+    id: row.id,
+    date: row.date,
+    kind: row.kind as TxKind,
+    amountCents: row.amountCents,
+    categoryId: row.categoryId,
+    note: row.note,
+    ...(row.isRefund === 1 ? { isRefund: true } : {}),
+    ...(row.pendingCategory === 1 ? { pendingCategory: true } : {}),
+    ...(row.deletedAt !== null ? { deletedAt: row.deletedAt } : {}),
+  }))
 }
 
-export function updateRow(id: number, patch: Partial<LedgerRow>): void {
+function applyBootstrap(data: BootstrapData): void {
+  const rows = mapRows(data.rows)
+  const budget = data.budget === null ? null : Number(data.budget)
   setState({
-    ...state,
-    rows: state.rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    status: 'ready',
+    errorMessage: null,
+    categories: data.categories.map((category) => ({
+      id: category.id,
+      kind: category.kind as TxKind,
+      name: category.name,
+      sortOrder: category.sortOrder,
+    })),
+    rows,
+    budgetCents: budget !== null && Number.isFinite(budget) && budget > 0 ? budget : null,
+    // 一致性检查：本地为空但备份清单显示历史上有数据 → 很可能是浏览器清了存储
+    dataLossWarning: rows.length === 0 && data.backupMaxCount > 0,
   })
 }
 
-/** 软删除：写入时间戳，不物理删除，因此可以恢复 */
-export function removeRow(id: number): void {
-  updateRow(id, { deletedAt: state.referenceDate })
+let bootstrapping: Promise<void> | null = null
+
+/** 打开数据库、建表、加载数据。幂等；error 状态可重试 */
+export async function initLedger(): Promise<void> {
+  if (state.status === 'ready') return
+  if (bootstrapping) return bootstrapping
+
+  bootstrapping = (async () => {
+    try {
+      await db.initLedger()
+      applyBootstrap(await db.bootstrap())
+    } catch (err) {
+      setState({ status: 'error', errorMessage: err instanceof Error ? err.message : String(err) })
+    } finally {
+      bootstrapping = null
+    }
+  })()
+  return bootstrapping
 }
 
-export function restoreRow(id: number): void {
+/** 强制重新加载（导入备份、载入演示数据后调用） */
+export async function reloadLedger(): Promise<void> {
+  applyBootstrap(await db.bootstrap())
+}
+
+/* ------------------------------------------------------------------ */
+/* 账目操作                                                            */
+/* ------------------------------------------------------------------ */
+
+export async function addRow(draft: Omit<LedgerRow, 'id'>): Promise<void> {
+  const id = await db.insert(
+    `INSERT INTO transactions (date, kind, amount_cents, category_id, note, is_refund, pending_category)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      draft.date,
+      draft.kind,
+      draft.amountCents,
+      draft.categoryId,
+      draft.note,
+      draft.isRefund === true ? 1 : 0,
+      draft.pendingCategory === true ? 1 : 0,
+    ],
+  )
+  setState({ rows: [...state.rows, { ...draft, id }] })
+}
+
+export async function updateRow(id: number, full: Omit<LedgerRow, 'id'>): Promise<void> {
+  await db.run(
+    `UPDATE transactions
+     SET date = ?, kind = ?, amount_cents = ?, category_id = ?, note = ?, is_refund = ?, pending_category = ?
+     WHERE id = ?`,
+    [
+      full.date,
+      full.kind,
+      full.amountCents,
+      full.categoryId,
+      full.note,
+      full.isRefund === true ? 1 : 0,
+      full.pendingCategory === true ? 1 : 0,
+      id,
+    ],
+  )
   setState({
-    ...state,
+    rows: state.rows.map((row) => (row.id === id ? { ...full, id } : row)),
+  })
+}
+
+/** 软删除：写时间戳，可恢复 */
+export async function removeRow(id: number): Promise<void> {
+  const at = state.referenceDate
+  await db.run('UPDATE transactions SET deleted_at = ? WHERE id = ?', [at, id])
+  setState({
+    rows: state.rows.map((row) => (row.id === id ? { ...row, deletedAt: at } : row)),
+  })
+}
+
+export async function restoreRow(id: number): Promise<void> {
+  await db.run('UPDATE transactions SET deleted_at = NULL WHERE id = ?', [id])
+  setState({
     rows: state.rows.map((row) => {
       if (row.id !== id) return row
       const { deletedAt: _dropped, ...rest } = row
@@ -192,43 +187,175 @@ export function restoreRow(id: number): void {
   })
 }
 
-export function setBudget(cents: number | null): void {
-  setState({ ...state, budgetCents: cents })
+/* ------------------------------------------------------------------ */
+/* 预算                                                                */
+/* ------------------------------------------------------------------ */
+
+export async function setBudget(cents: number | null): Promise<void> {
+  if (cents === null) {
+    await db.run("DELETE FROM meta WHERE key = 'budget_cents'")
+  } else {
+    await db.run(
+      `INSERT INTO meta (key, value) VALUES ('budget_cents', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [String(cents)],
+    )
+  }
+  setState({ budgetCents: cents })
 }
 
-/**
- * 分类操作。返回 null 表示成功，否则返回给用户看的错误信息。
- * 逻辑本身在 categories.ts 的纯函数里，这里有测试守住。
- */
-export function addCategoryAction(kind: TxKind, name: string): string | null {
+/* ------------------------------------------------------------------ */
+/* 分类操作（写库后替换纯函数临时分配的 id）                             */
+/* ------------------------------------------------------------------ */
+
+export async function addCategoryAction(kind: TxKind, name: string): Promise<string | null> {
   const result = addCategory(state.categories, state.rows, kind, name)
   if (!result.ok) return result.error
-  setState({ ...state, categories: result.categories, rows: result.rows })
+
+  const created = result.categories.find(
+    (category) => !state.categories.some((existing) => existing.id === category.id),
+  )
+  if (!created) return '创建分类失败'
+
+  const realId = await db.insert(
+    'INSERT INTO categories (kind, name, sort_order) VALUES (?, ?, ?)',
+    [created.kind, created.name, created.sortOrder],
+  )
+  setState({
+    categories: result.categories.map((category) =>
+      category.id === created.id ? { ...category, id: realId } : category,
+    ),
+  })
   return null
 }
 
-export function renameCategoryAction(id: number, name: string): string | null {
+export async function renameCategoryAction(id: number, name: string): Promise<string | null> {
   const result = renameCategory(state.categories, state.rows, id, name)
   if (!result.ok) return result.error
-  setState({ ...state, categories: result.categories, rows: result.rows })
+  await db.run('UPDATE categories SET name = ? WHERE id = ?', [result.categories.find((c) => c.id === id)?.name ?? name, id])
+  setState({ categories: result.categories })
   return null
 }
 
-export function removeCategoryAction(id: number): string | null {
+export async function removeCategoryAction(id: number): Promise<string | null> {
   const result = removeCategory(state.categories, state.rows, id, state.referenceDate)
   if (!result.ok) return result.error
-  setState({ ...state, categories: result.categories, rows: result.rows })
+
+  // 分类删除 + 其下未删除账目软删除（与纯函数行为一致）
+  await db.run('DELETE FROM categories WHERE id = ?', [id])
+  await db.run('UPDATE transactions SET deleted_at = ? WHERE category_id = ? AND deleted_at IS NULL', [
+    state.referenceDate,
+    id,
+  ])
+  setState({ categories: result.categories, rows: result.rows })
   return null
 }
 
-export function moveCategoryAction(id: number, delta: number): void {
-  setState({ ...state, categories: moveCategory(state.categories, id, delta) })
+export async function moveCategoryAction(id: number, delta: number): Promise<void> {
+  const next = moveCategory(state.categories, id, delta)
+  const changed = next.filter((category) => {
+    const before = state.categories.find((existing) => existing.id === category.id)
+    return before !== undefined && before.sortOrder !== category.sortOrder
+  })
+  for (const category of changed) {
+    await db.run('UPDATE categories SET sort_order = ? WHERE id = ?', [category.sortOrder, category.id])
+  }
+  setState({ categories: next })
 }
 
-/** 某分类下未删除的账目数（删除分类时用来提示会迁移多少笔） */
-export function categoryUsage(rows: readonly LedgerRow[], id: number): number {
-  return rows.filter((row) => row.categoryId === id && row.deletedAt === undefined).length
+/* ------------------------------------------------------------------ */
+/* 备份与导入                                                          */
+/* ------------------------------------------------------------------ */
+
+/** 导出 .sqlite 字节，并在备份清单里记录一笔（供启动一致性检查） */
+export async function exportBackup(): Promise<Uint8Array<ArrayBuffer>> {
+  const bytes = await db.exportBytes()
+  const backup = await db.recordBackup()
+  setState({ lastBackup: backup, dataLossWarning: false })
+  return bytes
 }
+
+/** 用外部 .sqlite 文件覆盖当前数据库并重建缓存 */
+export async function importBackup(bytes: Uint8Array): Promise<void> {
+  await db.importBytes(bytes)
+  await reloadLedger()
+}
+
+/* ------------------------------------------------------------------ */
+/* 演示数据（体验用）                                                   */
+/* ------------------------------------------------------------------ */
+
+/** 载入演示数据：清空现有账目，生成相对今天的约两周模拟记录 */
+export async function loadDemoData(): Promise<void> {
+  await db.run('DELETE FROM transactions')
+  await db.run('DELETE FROM backups')
+
+  const categories = state.categories
+  const expenseIds = categories.filter((c) => c.kind === 'expense').map((c) => c.id)
+  const incomeIds = categories.filter((c) => c.kind === 'income').map((c) => c.id)
+  if (expenseIds.length === 0 || incomeIds.length === 0) return
+
+  // 相对今天生成：收入在前，支出逐日铺开
+  const today = state.referenceDate
+  const plan: Array<[number, 'expense' | 'income', number, string, 'refund' | 'pending' | '']> = [
+    [0, 'income', 200000, '本月生活费', ''],
+    [0, 'expense', 3200, '午饭', ''],
+    [0, 'expense', 5800, '食堂', ''],
+    [-1, 'expense', 1500, '早餐', ''],
+    [-1, 'expense', 8400, '超市采购', 'pending'],
+    [-2, 'expense', 3600, '洗衣液', ''],
+    [-2, 'expense', 1200, '地铁', ''],
+    [-3, 'expense', 4600, '外卖', ''],
+    [-3, 'expense', 8800, '和同学吃饭', ''],
+    [-4, 'expense', 24000, '三顿外卖', 'pending'],
+    [-4, 'expense', 4500, '游戏充值', ''],
+    [-5, 'expense', 15000, '运动鞋', 'refund'],
+    [-5, 'expense', 900, '公交', ''],
+    [-6, 'expense', 5200, '食堂', ''],
+    [-6, 'expense', 12000, '电影票', ''],
+    [-7, 'expense', 2200, '奶茶', ''],
+    [-8, 'expense', 10000, '话费充值', ''],
+    [-8, 'expense', 2800, '打印课件', ''],
+    [-9, 'expense', 6800, '火锅', ''],
+    [-9, 'expense', 3100, '日用品', ''],
+    [-10, 'expense', 4200, '食堂', ''],
+    [-11, 'expense', 7500, '超市', ''],
+    [-11, 'expense', 1800, '打车', ''],
+    [-12, 'expense', 5600, '外卖', ''],
+    [-12, 'expense', 9000, '网购', ''],
+    [-13, 'expense', 3300, '食堂', ''],
+    [-13, 'expense', 4600, '饮料零食', ''],
+    [-14, 'expense', 5100, '午饭', ''],
+  ]
+
+  for (const [offset, kind, cents, note, flag] of plan) {
+    const idPool = kind === 'income' ? incomeIds : expenseIds
+    const categoryId = idPool[offset % idPool.length] ?? idPool[0] ?? 0
+    await db.insert(
+      `INSERT INTO transactions (date, kind, amount_cents, category_id, note, is_refund, pending_category)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        shiftDay(today, offset),
+        kind,
+        cents,
+        categoryId,
+        note,
+        flag === 'refund' ? 1 : 0,
+        flag === 'pending' ? 1 : 0,
+      ],
+    )
+  }
+
+  await db.run(
+    `INSERT INTO meta (key, value) VALUES ('budget_cents', '200000')
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  )
+  await reloadLedger()
+}
+
+/* ------------------------------------------------------------------ */
+/* 工具（UI 便捷函数，保持与 demo 版本一致的调用方式）                   */
+/* ------------------------------------------------------------------ */
 
 export function categoryById(categories: readonly Category[], id: number): Category | undefined {
   return categories.find((category) => category.id === id)
@@ -239,13 +366,7 @@ export function categoriesOfKind(categories: readonly Category[], kind: TxKind):
   return categories.filter((category) => category.kind === kind).sort((a, b) => a.sortOrder - b.sortOrder)
 }
 
-/** 整份状态重置，用于 demo 里「恢复演示数据」 */
-export function resetDemo(): void {
-  nextId = SEED_ROWS.length + 1
-  setState({
-    referenceDate: '2026-10-14',
-    categories: buildCategories(),
-    rows: buildRows(),
-    budgetCents: 200000,
-  })
+/** 某分类下未删除的账目数 */
+export function categoryUsage(rows: readonly LedgerRow[], id: number): number {
+  return rows.filter((row) => row.categoryId === id && row.deletedAt === undefined).length
 }

@@ -37,7 +37,7 @@ export function TxEditor({ row, onClose, onDelete }: TxEditorProps) {
     }
   }, [])
 
-  function save() {
+  async function save() {
     const cents = parseYuanToCents(amount)
     if (cents === null) {
       setError('金额请填写大于 0 的数字，最多两位小数')
@@ -48,16 +48,20 @@ export function TxEditor({ row, onClose, onDelete }: TxEditorProps) {
       return
     }
     setError(null)
-    updateRow(row.id, {
-      kind,
-      date,
-      amountCents: cents,
-      categoryId,
-      note: note.trim(),
-      isRefund: kind === 'expense' && isRefund ? true : false,
-      pendingCategory: kind === 'expense' && pendingCategory ? true : false,
-    })
-    onClose()
+    try {
+      await updateRow(row.id, {
+        kind,
+        date,
+        amountCents: cents,
+        categoryId,
+        note: note.trim(),
+        isRefund: kind === 'expense' && isRefund ? true : false,
+        pendingCategory: kind === 'expense' && pendingCategory ? true : false,
+      })
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   return (

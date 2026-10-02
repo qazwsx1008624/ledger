@@ -2,7 +2,7 @@
  * Worker 客户端：把 postMessage 包装成可 await 的调用。
  * 主线程只通过这里访问数据库，不直接接触 SQLite。
  */
-import type { BindValue, Request, Response } from './protocol'
+import type { BindValue, BootstrapData, Request, Response } from './protocol'
 
 let worker: Worker | null = null
 let nextId = 1
@@ -73,6 +73,30 @@ export async function get<T>(sql: string, bind: BindValue[] = []): Promise<T | u
 
 export async function run(sql: string, bind: BindValue[] = []): Promise<void> {
   await call((id) => ({ id, op: 'run', sql, bind }))
+}
+
+/** 执行 INSERT 并返回生成的自增 id */
+export async function insert(sql: string, bind: BindValue[] = []): Promise<number> {
+  const response = await call((id) => ({ id, op: 'insert', sql, bind }))
+  const row = response.row as { id: number } | undefined
+  return row?.id ?? 0
+}
+
+/** 一次性加载全部数据（分类、账目、预算、备份清单），用于启动与导入后重建缓存 */
+export async function bootstrap(): Promise<BootstrapData> {
+  const response = await call((id) => ({ id, op: 'bootstrap' }))
+  return response.row as BootstrapData
+}
+
+/** 记录一次备份到清单，用于启动一致性检查 */
+export async function recordBackup(): Promise<{ at: string; count: number }> {
+  const response = await call((id) => ({ id, op: 'record_backup' }))
+  return response.row as { at: string; count: number }
+}
+
+/** 用外部 .sqlite 文件覆盖当前数据库（导入备份），之后需要重新 bootstrap */
+export async function importBytes(bytes: Uint8Array): Promise<void> {
+  await call((id) => ({ id, op: 'import', bytes }))
 }
 
 /** 导出数据库字节，用于备份成 .sqlite 文件 */

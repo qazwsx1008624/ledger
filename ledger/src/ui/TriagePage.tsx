@@ -36,7 +36,16 @@ export function TriagePage({ onClose }: TriagePageProps) {
   }
 
   function assign(row: LedgerRow, categoryId: number) {
-    updateRow(row.id, { categoryId, pendingCategory: false })
+    // updateRow 写全量字段；归类 = 改分类并清除待补充标记
+    void updateRow(row.id, {
+      date: row.date,
+      kind: row.kind,
+      amountCents: row.amountCents,
+      categoryId,
+      note: row.note,
+      isRefund: row.isRefund === true ? true : false,
+      pendingCategory: false,
+    })
   }
 
   useEffect(() => {

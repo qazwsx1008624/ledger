@@ -56,7 +56,7 @@ export function EntryPage({ onEdit }: EntryPageProps) {
     [rows],
   )
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault()
     if (saving) return
 
@@ -73,7 +73,7 @@ export function EntryPage({ onEdit }: EntryPageProps) {
     setError(null)
     setSaving(true)
     try {
-      addRow({
+      await addRow({
         date,
         kind,
         amountCents: cents,
