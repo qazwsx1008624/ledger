@@ -22,9 +22,12 @@ jobs:
         working-directory: ledger
     steps:
       - uses: actions/checkout@v4
+      # 必须与本机生成锁文件、pnpm-workspace.yaml 的 pnpm 版本同大版本：
+      # 锁文件与工作区配置（nodeLinker / minimumReleaseAgeExclude）是 pnpm 10+ 的格式，
+      # 用 pnpm 9 会直接读取失败退出。
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
       - uses: actions/setup-node@v4
         with:
           node-version: 22
