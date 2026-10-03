@@ -8,6 +8,7 @@
  * 代价是同一时间只能有一个连接占用数据库：第二个标签页打开会失败，这是该 VFS 的设计而非 bug。
  */
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm'
+import { decideSeeding } from '../core/seed'
 import type { BootstrapData, Request, Response } from './protocol'
 
 /** OPFS 中存放数据库的路径。sahpool VFS 要求绝对路径 */
@@ -119,19 +120,37 @@ async function open(): Promise<Opened> {
   // 迁移旧库：补 uuid / updated_at 列与旧行数据
   migrateColumns(db)
 
-  // 种子分类只在首次建库时写入，之后不会覆盖用户改动
-  db.exec('BEGIN;')
-  try {
-    for (const [name, kind, sortOrder] of SEED_CATEGORIES) {
-      db.exec({
-        sql: 'INSERT OR IGNORE INTO categories (kind, name, sort_order) VALUES (?, ?, ?)',
-        bind: [kind, name, sortOrder],
-      })
+  // 播种预置分类：一辈子只做一次，靠 meta 表里的标记判断（见 src/core/seed.ts）。
+  // 绝不能无条件 INSERT OR IGNORE —— 那只是「防重复」，拦不住用户删掉的分类被重新创建。
+  const seededRow = db.selectObject("SELECT value FROM meta WHERE key = 'seeded_categories'")
+  const categoryCount = Number(db.selectObject('SELECT COUNT(*) AS c FROM categories')?.c ?? 0)
+  const transactionCount = Number(db.selectObject('SELECT COUNT(*) AS c FROM transactions')?.c ?? 0)
+  const decision = decideSeeding(
+    typeof seededRow?.value === 'string' ? seededRow.value : null,
+    categoryCount,
+    transactionCount,
+  )
+
+  if (decision !== 'skip') {
+    // 播种与写标记必须在同一个事务里：否则中途失败会留下
+    // 「播了一半但没标记」或「有标记但没播种」的坏状态。
+    db.exec('BEGIN;')
+    try {
+      if (decision === 'seed') {
+        for (const [name, kind, sortOrder] of SEED_CATEGORIES) {
+          // OR IGNORE 只是兜底（正常走不到），真正的防线是上面的标记判断
+          db.exec({
+            sql: 'INSERT OR IGNORE INTO categories (kind, name, sort_order) VALUES (?, ?, ?)',
+            bind: [kind, name, sortOrder],
+          })
+        }
+      }
+      db.exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('seeded_categories', '1')")
+      db.exec('COMMIT;')
+    } catch (err) {
+      db.exec('ROLLBACK;')
+      throw err
     }
-    db.exec('COMMIT;')
-  } catch (err) {
-    db.exec('ROLLBACK;')
-    throw err
   }
 
   opened = { db, pool, sqlite3 }
